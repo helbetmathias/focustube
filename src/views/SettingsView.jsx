@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, Play, Music, MessageCircle, FastForward, Bell, Clock, Star, Sparkles } from 'lucide-react';
+import { Shield, Play, Music, MessageCircle, FastForward, Bell, Clock, Star, Sparkles, LayoutGrid } from 'lucide-react';
 import { getTimeSaved } from '../services/storage';
 
 const CATEGORIES = [
@@ -65,10 +65,16 @@ const getInitialAmbient = () => {
   return ambient !== null ? ambient === 'true' : false; // Default off per user request
 };
 
+const getInitialRecomm = () => {
+  const r = localStorage.getItem('puretube_recomm');
+  return r ? r : 'all';
+};
+
 export default function SettingsView({ isActive }) {
   const [settings, setSettings] = useState(getInitialSettings);
   const [notifications, setNotifications] = useState(getInitialNotifications);
   const [ambient, setAmbient] = useState(getInitialAmbient);
+  const [recomm, setRecomm] = useState(getInitialRecomm);
   const [timeSaved, setTimeSaved] = useState(0);
 
   useEffect(() => {
@@ -96,6 +102,12 @@ export default function SettingsView({ isActive }) {
     const newVal = !ambient;
     setAmbient(newVal);
     localStorage.setItem('puretube_ambient', String(newVal));
+    window.dispatchEvent(new Event('puretube_settings_updated'));
+  };
+
+  const updateRecomm = (val) => {
+    setRecomm(val);
+    localStorage.setItem('puretube_recomm', val);
     window.dispatchEvent(new Event('puretube_settings_updated'));
   };
 
@@ -165,9 +177,8 @@ export default function SettingsView({ isActive }) {
           </div>
         </section>
 
-        {/* Category Settings - Symmetric Grid */}
         <section>
-          <h3 className="text-lg font-semibold mb-3 text-zinc-300">Skip Categories</h3>
+          <h3 className="text-lg font-semibold mb-3 text-zinc-300">Preferences</h3>
           <div className="grid gap-3 lg:gap-4 sm:grid-cols-2">
             {CATEGORIES.map((cat, idx) => {
               const action = settings[cat.id];
@@ -178,7 +189,7 @@ export default function SettingsView({ isActive }) {
               return (
                 <div 
                   key={cat.id} 
-                  className={`p-3 lg:p-4 glass rounded-xl lg:rounded-2xl flex flex-col gap-3 border-zinc-800/80 hover:border-zinc-700 transition-colors ${isLastOdd ? 'sm:col-span-2 sm:mx-auto sm:w-[calc(50%-0.5rem)] lg:w-[calc(50%-0.625rem)]' : ''}`}
+                  className="p-3 lg:p-4 glass rounded-xl lg:rounded-2xl flex flex-col gap-3 border-zinc-800/80 hover:border-zinc-700 transition-colors"
                 >
                   <div className="flex items-start gap-4">
                     <div className="p-2 rounded-lg bg-zinc-800 text-zinc-400">
@@ -197,6 +208,24 @@ export default function SettingsView({ isActive }) {
                 </div>
               );
             })}
+
+            <div className="p-3 lg:p-4 glass rounded-xl lg:rounded-2xl flex flex-col gap-3 border-zinc-800/80 hover:border-zinc-700 transition-colors">
+              <div className="flex items-start gap-4">
+                <div className="p-2 rounded-lg bg-zinc-800 text-zinc-400">
+                  <LayoutGrid size={20} />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-medium text-zinc-100">Recommendations</h4>
+                  <p className="text-xs lg:text-sm text-zinc-500 mt-1 lg:mt-2 leading-relaxed">Show related videos on the home feed and pause screen.</p>
+                </div>
+              </div>
+              <div className="flex bg-zinc-900 rounded-lg p-1 border border-zinc-800 mt-auto">
+                <button onClick={() => updateRecomm('all')} className={`flex-1 text-xs lg:text-sm py-1.5 lg:py-2 rounded-md font-medium transition-colors ${recomm === 'all' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}>All</button>
+                <button onClick={() => updateRecomm('home_only')} className={`flex-1 text-xs lg:text-sm py-1.5 lg:py-2 rounded-md font-medium transition-colors ${recomm === 'home_only' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}>Home Only</button>
+                <button onClick={() => updateRecomm('off')} className={`flex-1 text-xs lg:text-sm py-1.5 lg:py-2 rounded-md font-medium transition-colors ${recomm === 'off' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}>Off</button>
+              </div>
+            </div>
+
           </div>
         </section>
 

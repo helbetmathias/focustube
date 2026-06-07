@@ -103,6 +103,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   const [segments, setSegments] = useState([]);
   const [settings, setSettings] = useState(getInitialSettings);
   const [showNotifications, setShowNotifications] = useState(getInitialNotifications);
+  const [recommMode, setRecommMode] = useState(() => localStorage.getItem('puretube_recomm') || 'all');
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isIdle, setIsIdle] = useState(false);
@@ -125,6 +126,8 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   useEffect(() => {
     const handleSettingsUpdate = () => {
       setSettings(getInitialSettings());
+      const r = localStorage.getItem('puretube_recomm');
+      setRecommMode(r ? r : 'all');
     };
     window.addEventListener('puretube_settings_updated', handleSettingsUpdate);
     window.addEventListener('storage', handleSettingsUpdate);
@@ -350,7 +353,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
               }
             } else if (e.data === window.YT.PlayerState.PAUSED || e.data === window.YT.PlayerState.ENDED) {
               setOverlayType(e.data === window.YT.PlayerState.ENDED ? 'ended' : 'paused');
-              setShowOverlay(true);
+              setShowOverlay(recommMode === 'all');
               
               const currentVideoData = playerRef.current.getVideoData();
               if (currentVideoData && currentVideoData.video_id) {
@@ -400,7 +403,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     }
 
     // Do NOT destroy the player on cleanup! We want to reuse it.
-  }, [videoId, playlistId]); 
+  }, [videoId, playlistId, recommMode]); 
 
   // Highlight 10s Timeout
   useEffect(() => {

@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Link as LinkIcon, Loader2, Search, ListVideo } from 'lucide-react';
+import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGrid } from 'lucide-react';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
-import { getHistory, saveHistory, getFeedCache, saveFeedCache } from '../services/storage';
+import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache } from '../services/storage';
 
 const ThumbnailImage = ({ src, videoId, alt, className }) => {
   const [level, setLevel] = useState(0);
@@ -60,14 +60,17 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [playlistMetadata, setPlaylistMetadata] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [ambient, setAmbient] = useState(false);
+  const [recommMode, setRecommMode] = useState(() => localStorage.getItem('puretube_recomm') || 'all');
   const [searchResults, setSearchResults] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [homeFeed, setHomeFeed] = useState(null);
-  const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const [lastFeedGenTime, setLastFeedGenTime] = useState(() => Number(localStorage.getItem('puretube_last_feed_gen')) || 0);
+  const [lastSearchTerm, setLastSearchTerm] = useState('');
   const [disableFeedAnims, setDisableFeedAnims] = useState(false);
+  const [isFeedLoading, setIsFeedLoading] = useState(true);
   const currentVideoIdRef = useRef(null);
-  const lastFeedGenTimeRef = useRef(0);
+  const lastFeedGenTimeRef = useRef(Number(localStorage.getItem('puretube_last_feed_gen')) || 0);
 
   const formatDuration = (seconds) => {
     if (!seconds) return '';
@@ -90,20 +93,26 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   };
 
   useEffect(() => {
-    const readAmbient = () => {
+    const readSettings = () => {
       const a = localStorage.getItem('puretube_ambient');
       setAmbient(a !== null ? a === 'true' : false);
+      const r = localStorage.getItem('puretube_recomm');
+      setRecommMode(r ? r : 'all');
     };
-    readAmbient();
-    window.addEventListener('puretube_settings_updated', readAmbient);
-    return () => window.removeEventListener('puretube_settings_updated', readAmbient);
+    readSettings();
+    window.addEventListener('puretube_settings_updated', readSettings);
+    return () => window.removeEventListener('puretube_settings_updated', readSettings);
   }, []);
 
   // Load Home Feed
   const loadHomeFeed = async (forceRefresh = false) => {
+    if (recommMode === 'off') {
+        setIsFeedLoading(false);
+        return;
+    }
     setIsFeedLoading(true);
     if (!forceRefresh) {
-      const cache = await getFeedCache();
+      const cache = await getHomeBlendCache();
       if (cache && cache.length > 0) {
         setHomeFeed(cache);
         setIsFeedLoading(false);
@@ -189,8 +198,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       if (blended.length > 0) {
         setHomeFeed(blended);
         setIsFeedLoading(false);
-        saveFeedCache(blended);
+        saveHomeBlendCache(blended);
         lastFeedGenTimeRef.current = Date.now();
+        localStorage.setItem('puretube_last_feed_gen', lastFeedGenTimeRef.current.toString());
+        setLastFeedGenTime(lastFeedGenTimeRef.current);
       }
     } catch (e) {
       console.error("Failed to build history feed", e);
@@ -201,7 +212,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
 
   useEffect(() => {
     loadHomeFeed();
-  }, []);
+  }, [recommMode]);
 
   useEffect(() => {
     if (!isActive) {
@@ -304,6 +315,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       loadMedia(null, null); // clear player
       setIsSearching(true);
       setSearchError(false);
+      setLastSearchTerm(url);
       fetchSearchResults(parsed.query)
         .then(results => {
           setSearchResults(results);
@@ -363,6 +375,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     ? `calc(${videoMaxWidth} + 400px + 1.5rem)` 
     : videoMaxWidth;
 
+  const showBack = searchResults && (mediaInfo.videoId || mediaInfo.playlistId) && (url === lastSearchTerm || url.trim().length === 0);
+
   return (
     <div className={`flex-1 min-h-0 w-full flex flex-col justify-start lg:justify-center gap-4 sm:gap-6 ${searchResults && !mediaInfo.videoId ? 'animate-page-fade' : ''}`}>
       <div className="flex-none w-full mx-auto transition-all duration-500" style={{ maxWidth: containerMaxWidth }}>
@@ -380,7 +394,21 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-12 pr-4 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
                 />
               </div>
-              {(!url.startsWith('http') && url.trim().length > 0) ? (
+              {showBack ? (
+                <button 
+                  type="button" 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMediaInfo({ videoId: null, playlistId: null });
+                    setUrl(lastSearchTerm);
+                  }}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 sm:px-8 py-3 rounded-xl font-semibold transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] shadow-lg flex items-center justify-center gap-2 border border-zinc-700"
+                >
+                  <ArrowLeft size={20} />
+                  <span>Back</span>
+                </button>
+              ) : (!url.startsWith('http') && url.trim().length > 0) ? (
                 <button type="submit" className="bg-brand-500 hover:bg-brand-400 text-white px-6 sm:px-8 py-3 rounded-xl font-semibold transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-brand-500/25 flex items-center justify-center gap-2">
                   <Search size={20} />
                   <span>Search</span>
@@ -512,7 +540,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                       <button 
                         key={`${vid.id}-${idx}`}
                         onClick={() => {
-                          setSearchResults(null);
                           if (isPlaylist) {
                             loadMedia(null, vid.id);
                           } else {
@@ -556,6 +583,18 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
             ) : isFeedLoading ? (
               <div key="loading-spinner" className="w-full flex items-center justify-center min-h-[400px]">
                 <Loader2 size={32} className="text-zinc-500 animate-spin" />
+              </div>
+            ) : recommMode === 'off' ? (
+              <div 
+                key="home-feed-disabled-state"
+                className="w-full flex-1 flex flex-col items-center justify-center animate-fade-in"
+                style={{ minHeight: '40vh' }}
+              >
+                <div className="w-16 h-16 bg-zinc-900/50 rounded-full flex items-center justify-center mb-4 text-zinc-600">
+                  <LayoutGrid size={28} />
+                </div>
+                <h3 className="text-xl font-medium text-zinc-400 mb-2">Recommendations Disabled</h3>
+                <p className="text-zinc-600 text-sm max-w-sm text-center">Your home feed is hidden. Use the search bar above to find a video or paste a URL to start watching.</p>
               </div>
             ) : homeFeed && homeFeed.length > 0 ? (
               <div key="feed-container" id="home-feed-container" className="w-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-10 pr-2">

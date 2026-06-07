@@ -63,3 +63,20 @@ export const saveFeedCache = async (feedArray) => {
     console.error('Failed to save feed cache to IndexedDB:', error);
   }
 };
+
+export const getHomeBlendCache = async () => {
+  try {
+    const feed = await get('puretube_home_blend');
+    return feed || [];
+  } catch (error) {
+    return [];
+  }
+};
+
+export const saveHomeBlendCache = async (feedArray) => {
+  try {
+    await set('puretube_home_blend', feedArray);
+  } catch (error) {
+    console.error('Failed to save home blend to IndexedDB:', error);
+  }
+};
