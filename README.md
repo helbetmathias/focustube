@@ -34,12 +34,20 @@ To run FocusTube locally on your machine:
    npm install
    ```
 
-3. **Start the development server**
-   ```bash
-   npm run dev
-   ```
+### Development Mode
+To run the app in development mode (with hot-reloading, but slower performance):
+```bash
+npm run dev
+```
+Open your browser and navigate to `http://localhost:5173`
 
-4. Open your browser and navigate to `http://localhost:5173`
+### Production Mode (Lightning Fast)
+To experience the blazing-fast speeds of the final product locally, compile and preview the production build:
+```bash
+npm run build
+npm run preview
+```
+Open your browser and navigate to the preview URL provided (usually `http://localhost:4173`).
 
 ## 🔒 Privacy Note
 FocusTube acts entirely on the client side. There is no central server tracking your watch habits. Recommendations are fetched pseudonymously by querying public Invidious API instances.
