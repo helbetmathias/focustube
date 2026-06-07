@@ -476,38 +476,43 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
       
       {/* Custom Related Videos Overlay */}
       {showOverlay && (
-        <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center animate-page-fade p-4 sm:p-6 overflow-y-auto custom-scrollbar transform-gpu">
+        <div className="absolute inset-0 z-[80]">
+          {/* Static Action Button (Immune to scrolling) */}
           <button 
             onClick={() => playerRef.current?.playVideo()} 
-            className="absolute top-2 sm:top-6 right-2 sm:right-6 z-10 group flex items-center justify-center w-8 h-8 sm:w-12 sm:h-12 bg-white/10 hover:bg-white/20 rounded-full backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 border border-white/10"
+            className="absolute top-4 sm:top-6 right-4 sm:right-6 z-[90] group flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 bg-white/10 hover:bg-white/20 rounded-full backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 border border-white/10 shadow-xl"
             title={overlayType === 'ended' ? "Replay" : "Resume"}
           >
             {overlayType === 'ended' ? (
-              <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5 text-white/80 group-hover:text-white transition-all group-hover:-rotate-180 duration-500 ease-out" />
+              <RotateCcw className="w-5 h-5 sm:w-5 sm:h-5 text-white/90 group-hover:text-white transition-all group-hover:-rotate-180 duration-500 ease-out" />
             ) : (
-              <Play className="w-4 h-4 sm:w-5 sm:h-5 text-white/80 group-hover:text-white transition-colors ml-0.5" fill="currentColor" />
+              <Play className="w-5 h-5 sm:w-5 sm:h-5 text-white/90 group-hover:text-white transition-colors ml-0.5" fill="currentColor" />
             )}
           </button>
-          
-          {isFetchingRelated ? (
-            <div className="flex flex-col items-center gap-4 text-zinc-400">
-              <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="font-medium tracking-wide animate-pulse">Loading recommendations...</p>
-            </div>
-          ) : relatedError ? (
-            <div className="flex flex-col items-center gap-4 text-zinc-400">
-              <p className="font-medium">Could not load recommendations.</p>
-              <button 
-                onClick={() => playerRef.current?.playVideo()} 
-                className="bg-brand-500 hover:bg-brand-400 px-6 py-2.5 rounded-full font-bold text-white transition-all duration-300 ease-out shadow-lg hover:shadow-xl hover:scale-[1.03] active:scale-[0.97]"
-              >
-                {overlayType === 'ended' ? 'Replay Video' : 'Resume Video'}
-              </button>
-            </div>
-          ) : relatedVideos && relatedVideos.length > 0 ? (
-            <div className={`w-full mx-auto my-auto py-2 sm:py-8 transition-all duration-500 ${isFullscreen ? 'max-w-[85vw]' : 'max-w-6xl'}`}>
-              <h3 className={`font-bold text-white text-center tracking-tight transition-all duration-500 ${isFullscreen ? 'text-2xl sm:text-3xl mb-4 sm:mb-8' : 'text-sm sm:text-2xl mb-2 sm:mb-6'}`}>Explore Further</h3>
-              <div className={`flex sm:grid overflow-x-auto sm:overflow-x-visible snap-x snap-mandatory sm:snap-none pb-4 sm:pb-0 px-4 sm:px-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 transition-all duration-500 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isFullscreen ? 'gap-6 sm:gap-8' : 'gap-3 sm:gap-6'}`}>
+
+          {/* Scrollable Content Layer */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-md overflow-y-auto custom-scrollbar transform-gpu">
+            <div className="flex flex-col items-center justify-center min-h-full p-4 sm:p-6 sm:py-12">
+            
+            {isFetchingRelated ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-400">
+                <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="font-medium tracking-wide animate-pulse">Loading recommendations...</p>
+              </div>
+            ) : relatedError ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-400">
+                <p className="font-medium">Could not load recommendations.</p>
+                <button 
+                  onClick={() => playerRef.current?.playVideo()} 
+                  className="bg-brand-500 hover:bg-brand-400 px-6 py-2.5 rounded-full font-bold text-white transition-all duration-300 ease-out shadow-lg hover:shadow-xl hover:scale-[1.03] active:scale-[0.97]"
+                >
+                  {overlayType === 'ended' ? 'Replay Video' : 'Resume Video'}
+                </button>
+              </div>
+            ) : relatedVideos && relatedVideos.length > 0 ? (
+              <div className={`w-full max-w-6xl mx-auto transition-all duration-500 ${isFullscreen ? 'max-w-[85vw]' : ''}`}>
+                <h3 className={`font-bold text-white text-center tracking-tight transition-all duration-500 ${isFullscreen ? 'text-2xl sm:text-3xl mb-4 sm:mb-8' : 'text-sm sm:text-2xl mb-2 sm:mb-6'}`}>Explore Further</h3>
+                <div className={`flex sm:grid overflow-x-auto sm:overflow-x-visible snap-x snap-mandatory sm:snap-none pb-4 sm:pb-0 px-4 sm:px-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 transition-all duration-500 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isFullscreen ? 'gap-6 sm:gap-8' : 'gap-3 sm:gap-6'}`}>
                 {relatedVideos.slice(0, 12).map((vid, idx) => (
                   <button 
                     key={`${vid.id}-${idx}`}
@@ -540,6 +545,8 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
               </div>
             </div>
           ) : null}
+          </div>
+        </div>
         </div>
       )}
       
