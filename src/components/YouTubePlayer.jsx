@@ -99,6 +99,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   const containerRef = useRef(null);
   const playerRef = useRef(null);
   const idleTimeoutRef = useRef(null);
+  const hasPlayedRef = useRef(false);
   
   const [segments, setSegments] = useState([]);
   const [settings, setSettings] = useState(getInitialSettings);
@@ -226,6 +227,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   useEffect(() => {
     if (!videoId && !playlistId) return;
 
+    hasPlayedRef.current = false;
     setHideHighlight(false);
     setShowOverlay(false);
     setOverlayType('paused');
@@ -316,6 +318,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
             };
 
             if (e.data === window.YT.PlayerState.PLAYING) {
+              hasPlayedRef.current = true;
               setShowOverlay(false);
               setDuration(playerRef.current.getDuration());
               
@@ -352,6 +355,11 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
                 }
               }
             } else if (e.data === window.YT.PlayerState.PAUSED || e.data === window.YT.PlayerState.ENDED) {
+              // Fix for Safari autoplay block: ignore forced pause if video hasn't actually started yet
+              if (e.data === window.YT.PlayerState.PAUSED && !hasPlayedRef.current) {
+                return;
+              }
+
               setOverlayType(e.data === window.YT.PlayerState.ENDED ? 'ended' : 'paused');
               setShowOverlay(recommMode === 'all');
               
