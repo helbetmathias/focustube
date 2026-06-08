@@ -28,6 +28,21 @@ async function getInvidiousInstances() {
   
   // Shuffle the array to distribute the load globally across thousands of users
   cachedInstances = pool.sort(() => Math.random() - 0.5);
+  
+  // PERSISTENT MEMORY: If we have a saved Golden Server from a previous session, inject it at the absolute #1 spot
+  try {
+    const savedGolden = localStorage.getItem('focustube_golden_server');
+    if (savedGolden) {
+      const idx = cachedInstances.indexOf(savedGolden);
+      if (idx > -1) {
+        cachedInstances.splice(idx, 1);
+      }
+      cachedInstances.unshift(savedGolden);
+    }
+  } catch (e) {
+    // Ignore localStorage errors in incognito/strict modes
+  }
+  
   return cachedInstances;
 }
 
@@ -37,6 +52,13 @@ function promoteInstance(uri) {
     if (idx > 0) {
       cachedInstances.splice(idx, 1);
       cachedInstances.unshift(uri);
+      
+      // PERSISTENT MEMORY: Save this new Golden Server to the hard drive for tomorrow
+      try {
+        localStorage.setItem('focustube_golden_server', uri);
+      } catch (e) {
+        // Ignore
+      }
     }
   }
 }
