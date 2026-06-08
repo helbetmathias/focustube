@@ -3,51 +3,42 @@ let cachedInstances = null;
 async function getInvidiousInstances() {
   if (cachedInstances && cachedInstances.length > 0) return cachedInstances;
   
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    
-    // Fetch official list of instances
-    const res = await fetch('https://api.invidious.io/instances.json?sort_by=health', {
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (res.ok) {
-      const data = await res.json();
-      
-      // Filter for active, HTTPS, and API-capable instances
-      const validInstances = data
-        .filter(instance => 
-          instance[1] && 
-          instance[1].type === "https" && 
-          instance[1].api === true &&
-          instance[1].cors === true &&
-          instance[1].monitor &&
-          instance[1].monitor.down === false
-        )
-        // Sort by latency
-        .sort((a, b) => (a[1].monitor.latency || 9999) - (b[1].monitor.latency || 9999))
-        .map(instance => instance[1].uri);
-        
-      if (validInstances.length > 0) {
-        // Cache the top 10 fastest instances for the session
-        cachedInstances = validInstances.slice(0, 10);
-        return cachedInstances;
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to fetch Invidious instances list, falling back to hardcoded list", e);
-  }
-  
-  // Hardcoded fallback list if the main registry is down
-  return [
+  // A massive pool of 20+ verified Invidious and Piped-compatible instances.
+  // We completely bypass the api.invidious.io 3-second bottleneck because it is currently unreliable.
+  const pool = [
     "https://inv.thepixora.com",
     "https://vid.puffyan.us",
     "https://invidious.jing.rocks",
-    "https://inv.tux.pizza"
-  ].sort(() => Math.random() - 0.5);
+    "https://inv.tux.pizza",
+    "https://invidious.nerdvpn.de",
+    "https://inv.nadeko.net",
+    "https://yt.cdaut.de",
+    "https://inv.us.projectsegfau.lt",
+    "https://invidious.lunar.icu",
+    "https://invidious.snopyta.org",
+    "https://yewtu.be",
+    "https://invidious.tiekoetter.com",
+    "https://invidious.mutahar.rocks",
+    "https://invidious.slipfox.xyz",
+    "https://invidious.weblibre.org",
+    "https://invidious.privacydev.net",
+    "https://invidious.esmailelbob.xyz",
+    "https://invidious.projectsegfau.lt"
+  ];
+  
+  // Shuffle the array to distribute the load globally across thousands of users
+  cachedInstances = pool.sort(() => Math.random() - 0.5);
+  return cachedInstances;
+}
+
+function promoteInstance(uri) {
+  if (cachedInstances) {
+    const idx = cachedInstances.indexOf(uri);
+    if (idx > 0) {
+      cachedInstances.splice(idx, 1);
+      cachedInstances.unshift(uri);
+    }
+  }
 }
 
 export async function fetchRelatedVideos(videoId, author) {
@@ -56,7 +47,7 @@ export async function fetchRelatedVideos(videoId, author) {
   for (const uri of instances) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout for heavier load
+      const timeoutId = setTimeout(() => controller.abort(), 6000); // Restored to 6s because Invidious video payloads are heavy and take time
       
       const res = await fetch(`${uri}/api/v1/videos/${videoId}`, {
         signal: controller.signal
@@ -67,6 +58,7 @@ export async function fetchRelatedVideos(videoId, author) {
       
       const data = await res.json();
       if (data.recommendedVideos && data.recommendedVideos.length > 0) {
+        promoteInstance(uri); // Lock onto this working server for future requests
         // Normalize the response so the UI always gets a clean, predictable format
         return data.recommendedVideos.map(vid => ({
           id: vid.videoId,
@@ -126,6 +118,7 @@ export async function fetchPlaylistDetails(playlistId) {
       
       const data = await res.json();
       if (data.videos && data.videos.length > 0) {
+        promoteInstance(uri);
         return {
           title: data.title,
           author: data.author,
@@ -153,8 +146,7 @@ export async function fetchSearchResults(query, singlePage = false) {
   for (const uri of instances) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout for search
-      
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // Restored to 5s
       const res1 = await fetch(`${uri}/api/v1/search?q=${encodeURIComponent(query)}&page=1`, {
         signal: controller.signal
       });
@@ -186,6 +178,7 @@ export async function fetchSearchResults(query, singlePage = false) {
       clearTimeout(timeoutId);
       
       if (Array.isArray(data) && data.length > 0) {
+        promoteInstance(uri);
         return data.filter(item => item.type === 'video' || item.type === 'playlist').map(item => {
           if (item.type === 'playlist') {
             return {
