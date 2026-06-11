@@ -66,6 +66,7 @@ function promoteInstance(uri) {
 export async function fetchRelatedVideos(videoId, author) {
   const instances = await getInvidiousInstances();
   
+  let failures = 0;
   for (const uri of instances) {
     try {
       const controller = new AbortController();
@@ -76,7 +77,11 @@ export async function fetchRelatedVideos(videoId, author) {
       });
       clearTimeout(timeoutId);
       
-      if (!res.ok) continue;
+      if (!res.ok) {
+        failures++;
+        if (failures >= 3) break;
+        continue;
+      }
       
       const data = await res.json();
       if (data.recommendedVideos && data.recommendedVideos.length > 0) {
@@ -93,7 +98,8 @@ export async function fetchRelatedVideos(videoId, author) {
         }));
       }
     } catch (err) {
-      // Ignore errors (like timeout or cors) and immediately try the next instance
+      failures++;
+      if (failures >= 3) break;
     }
   }
   
@@ -126,6 +132,7 @@ export async function fetchAuthorFallback(author, excludeVideoId) {
 export async function fetchPlaylistDetails(playlistId) {
   const instances = await getInvidiousInstances();
   
+  let failures = 0;
   for (const uri of instances) {
     try {
       const controller = new AbortController();
@@ -136,7 +143,11 @@ export async function fetchPlaylistDetails(playlistId) {
       });
       clearTimeout(timeoutId);
       
-      if (!res.ok) continue;
+      if (!res.ok) {
+        failures++;
+        if (failures >= 3) break;
+        continue;
+      }
       
       const data = await res.json();
       if (data.videos && data.videos.length > 0) {
@@ -155,7 +166,8 @@ export async function fetchPlaylistDetails(playlistId) {
         };
       }
     } catch (err) {
-      // Ignore errors and try the next instance
+      failures++;
+      if (failures >= 3) break;
     }
   }
   
@@ -165,6 +177,7 @@ export async function fetchPlaylistDetails(playlistId) {
 export async function fetchSearchResults(query, singlePage = false) {
   const instances = await getInvidiousInstances();
   
+  let failures = 0;
   for (const uri of instances) {
     try {
       const controller = new AbortController();
@@ -175,6 +188,8 @@ export async function fetchSearchResults(query, singlePage = false) {
       
       if (!res1.ok) {
         clearTimeout(timeoutId);
+        failures++;
+        if (failures >= 3) break;
         continue;
       }
       
@@ -230,7 +245,8 @@ export async function fetchSearchResults(query, singlePage = false) {
          return []; // valid empty response
       }
     } catch (err) {
-      // Ignore errors and try the next instance
+      failures++;
+      if (failures >= 3) break;
     }
   }
   
