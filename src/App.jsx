@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Play, PlaySquare, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import PlayerView from './views/PlayerView';
 import HistoryView from './views/HistoryView';
 import SettingsView from './views/SettingsView';
@@ -66,6 +68,8 @@ function App() {
           <SettingsView isActive={activeTab === 'settings'} />
         </div>
       </main>
+      <Analytics />
+      <SpeedInsights />
     </div>
   );
 }
