@@ -227,6 +227,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       
       setDisableFeedAnims(false);
       setMediaInfo({ videoId: null, playlistId: null });
+      setPlaylistData(null);
+      setPlaylistMetadata(null);
       setSearchResults(null);
       setUrl('');
       
