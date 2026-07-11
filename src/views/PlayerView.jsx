@@ -439,7 +439,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         {mediaInfo.videoId || mediaInfo.playlistId ? (
           <>
             <div 
-              className="w-full lg:flex-1 flex flex-col relative aspect-video transition-all duration-500 z-10"
+              className="w-full min-w-0 lg:flex-1 flex flex-col relative aspect-video transition-all duration-500 z-10"
               style={{ maxHeight: playerMaxHeight, maxWidth: videoMaxWidth }}
             >
               {ambient && mediaInfo.videoId && (
@@ -468,7 +468,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
             
             {playlistData && playlistData.videos && (
               <div 
-                className="w-full lg:w-[400px] glass rounded-2xl flex flex-col overflow-hidden transition-all duration-500"
+                className="w-full lg:w-[clamp(300px,22vw,400px)] lg:flex-none lg:shrink-0 glass rounded-2xl flex flex-col overflow-hidden transition-all duration-500"
                 style={{ maxHeight: playerMaxHeight }}
               >
                 <div className="p-4 border-b border-zinc-800 bg-zinc-900/50">
