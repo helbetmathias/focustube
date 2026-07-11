@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGrid } from 'lucide-react';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getTargetFeedSize } from '../utils/feed';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
+import { getInitialSearchResultCount, prepareSearchResults } from '../utils/search';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
 import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
 
@@ -49,6 +50,48 @@ const ThumbnailImage = ({ src, videoId, alt, className }) => {
   );
 };
 
+const SearchResultCard = ({ vid, onSelect, formatDuration, className = '' }) => {
+  const isPlaylist = vid.type === 'playlist';
+  const thumbnailVideoId = isPlaylist && vid.thumbnail.includes('/vi/')
+    ? vid.thumbnail.split('/vi/')[1].split('/')[0]
+    : vid.id;
+
+  return (
+    <button
+      onClick={() => onSelect(vid)}
+      className={`flex flex-col text-left group hover:bg-zinc-800/50 p-2 rounded-xl transition-colors ${className}`}
+    >
+      <div className="w-full aspect-video bg-zinc-800 rounded-lg relative overflow-hidden mb-3 shadow-md group-hover:shadow-lg transition-all">
+        <ThumbnailImage
+          src={`https://img.youtube.com/vi/${thumbnailVideoId}/maxresdefault.jpg`}
+          videoId={thumbnailVideoId}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          alt=""
+        />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+          {isPlaylist ? (
+            <ListVideo size={32} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+          ) : (
+            <Play size={32} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" fill="currentColor" />
+          )}
+        </div>
+        {isPlaylist ? (
+          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-2 py-1 rounded flex items-center gap-1.5 shadow-sm border border-white/10">
+            <ListVideo size={12} />
+            <span>{vid.videoCount}</span>
+          </div>
+        ) : vid.lengthSeconds ? (
+          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
+            {formatDuration(vid.lengthSeconds)}
+          </div>
+        ) : null}
+      </div>
+      <h4 className="font-medium text-zinc-100 line-clamp-2 leading-snug mb-1 group-hover:text-brand-500 transition-colors">{vid.title}</h4>
+      <p className="text-sm text-zinc-400 mt-1 line-clamp-1">{vid.author}</p>
+    </button>
+  );
+};
+
 export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [url, setUrl] = useState('');
   const [mediaInfo, setMediaInfo] = useState({ videoId: null, playlistId: null });
@@ -59,6 +102,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [ambient, setAmbient] = useState(false);
   const [recommMode, setRecommMode] = useState(() => localStorage.getItem('puretube_recomm') || 'all');
   const [searchResults, setSearchResults] = useState(null);
+  const [showAllSearchResults, setShowAllSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [homeFeed, setHomeFeed] = useState(null);
@@ -66,7 +110,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [disableFeedAnims, setDisableFeedAnims] = useState(false);
   const [isFeedLoading, setIsFeedLoading] = useState(true);
   const currentVideoIdRef = useRef(null);
-  const lastFeedGenTimeRef = useRef(Number(localStorage.getItem('puretube_last_feed_gen')) || 0);
   const homeFeedRequestIdRef = useRef(0);
   const historyWriteQueueRef = useRef(Promise.resolve());
 
@@ -111,15 +154,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         return;
     }
     setIsFeedLoading(true);
-    if (!forceRefresh) {
-      const cache = await getHomeBlendCache();
-      const validFeedSizes = new Set([8, 12, 16, 20]);
-      if (cache && validFeedSizes.has(cache.length)) {
-        setHomeFeed(cache);
-        setIsFeedLoading(false);
-        return;
-      }
-    }
     
     try {
       const history = await getHistory();
@@ -127,34 +161,74 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         setIsFeedLoading(false);
         return;
       }
-      
-      // Sort history by timestamp descending to get the most recently watched authors first
-      const sortedHistory = [...history].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      const authors = [...new Set(sortedHistory.map(h => h.author).filter(Boolean))];
-      
-      // Pick top 10 recent authors, then shuffle them to get 4 random ones
-      const recentAuthors = authors.slice(0, 10);
-      const shuffledAuthors = recentAuthors.sort(() => 0.5 - Math.random()).slice(0, 4);
-      if (shuffledAuthors.length === 0) {
+
+      const { creators, newestSeed, signature } = getHomeHistoryContext(history);
+      if (creators.length === 0) {
         setIsFeedLoading(false);
         return;
       }
 
+      const historyIds = new Set(history.map(item => item.id));
+      const enrichWithRealRecommendations = (baseFeed, excludedIds = new Set()) => {
+        if (!newestSeed?.id || !Array.isArray(baseFeed) || baseFeed.length === 0) return;
+
+        const baseIds = new Set(baseFeed.map(video => video.id));
+        fetchRelatedVideos(newestSeed.id)
+          .then(realResults => {
+            if (requestId !== homeFeedRequestIdRef.current || !Array.isArray(realResults)) return;
+
+            const realIds = new Set();
+            const realFeed = realResults.filter(video => {
+              if (
+                video.type !== 'video'
+                || historyIds.has(video.id)
+                || baseIds.has(video.id)
+                || excludedIds.has(video.id)
+                || realIds.has(video.id)
+              ) return false;
+              realIds.add(video.id);
+              return true;
+            });
+
+            if (realFeed.length === 0) return;
+
+            const finalFeed = blendRecommendationSources(baseFeed, realFeed);
+            setHomeFeed(finalFeed);
+            saveHomeBlendCache(finalFeed, signature);
+          })
+          .catch(() => {
+            // The creator-search feed remains visible while real recommendations are unavailable.
+          });
+      };
+
+      if (!forceRefresh) {
+        const cache = await getHomeBlendCache();
+        const validFeedSizes = new Set([8, 12, 16, 20]);
+        if (
+          cache?.historySignature === signature
+          && Array.isArray(cache.feed)
+          && validFeedSizes.has(cache.feed.length)
+        ) {
+          setHomeFeed(cache.feed);
+          setIsFeedLoading(false);
+          enrichWithRealRecommendations(cache.feed, new Set(cache.feed.map(video => video.id)));
+          return;
+        }
+      }
+
       // Grow by complete four-card desktop rows as FocusTube learns more creators.
-      const numAuthors = shuffledAuthors.length;
+      const numAuthors = creators.length;
       const targetFeedSize = getTargetFeedSize(numAuthors);
       const videosPerAuthor = Math.ceil(targetFeedSize / numAuthors);
 
-      const historyIds = new Set(history.map(h => h.id));
-
       // Phase 1: fetch creator searches together and render them immediately.
       const authorResults = await Promise.allSettled(
-        shuffledAuthors.map(author => fetchSearchResults(author, true))
+        creators.map(author => fetchSearchResults(author, true))
       );
 
       const authorVideos = authorResults.map((result, index) => {
         if (result.status !== 'fulfilled' || !Array.isArray(result.value)) {
-          console.warn("Home feed search failed for", shuffledAuthors[index]);
+          console.warn("Home feed search failed for", creators[index]);
           return [];
         }
 
@@ -178,36 +252,11 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       if (fastFeed.length > 0) {
         setHomeFeed(fastFeed);
         setIsFeedLoading(false);
-        saveHomeBlendCache(fastFeed);
-        lastFeedGenTimeRef.current = Date.now();
-        localStorage.setItem('puretube_last_feed_gen', lastFeedGenTimeRef.current.toString());
+        saveHomeBlendCache(fastFeed, signature);
       }
 
-      // Phase 2: try real related recommendations in the background. They never block the fast feed.
-      const newestSeed = sortedHistory[0];
-      if (newestSeed?.id) {
-        fetchRelatedVideos(newestSeed.id)
-          .then(realResults => {
-            if (requestId !== homeFeedRequestIdRef.current || !Array.isArray(realResults)) return;
-
-            const realIds = new Set();
-            const realFeed = realResults.filter(video => {
-              if (video.type !== 'video' || historyIds.has(video.id) || creatorIds.has(video.id) || realIds.has(video.id)) return false;
-              realIds.add(video.id);
-              return true;
-            });
-
-            if (realFeed.length === 0) return;
-
-            // Replace creator cards one-for-one so enrichment never changes grid height.
-            const finalFeed = blendRecommendationSources(fastFeed, realFeed);
-            setHomeFeed(finalFeed);
-            saveHomeBlendCache(finalFeed);
-          })
-          .catch(() => {
-            // Creator search results are already visible, so related API failure is non-blocking.
-          });
-      }
+      // Phase 2: real recommendations retry on every page load and never block the fast feed.
+      enrichWithRealRecommendations(fastFeed, creatorIds);
     } catch (e) {
       console.error("Failed to build history feed", e);
     } finally {
@@ -235,20 +284,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       setPlaylistData(null);
       setPlaylistMetadata(null);
       setSearchResults(null);
+      setShowAllSearchResults(false);
       setUrl('');
       
-      try {
-        const history = await getHistory();
-        const mostRecentWatchTime = history && history.length > 0 ? history[0].timestamp : 0;
-        
-        if (mostRecentWatchTime > lastFeedGenTimeRef.current) {
-          loadHomeFeed(true);
-        } else {
-          loadHomeFeed(false);
-        }
-      } catch {
-        loadHomeFeed(true);
-      }
+      loadHomeFeed(false);
     };
     window.addEventListener('focustube_refresh_feed', handleRefresh);
     return () => window.removeEventListener('focustube_refresh_feed', handleRefresh);
@@ -325,9 +364,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       setIsSearching(true);
       setSearchError(false);
       setLastSearchTerm(url);
+      setShowAllSearchResults(false);
       fetchSearchResults(parsed.query)
         .then(results => {
-          setSearchResults(results);
+          setSearchResults(prepareSearchResults(results, parsed.query));
           setIsSearching(false);
         })
         .catch(() => {
@@ -389,6 +429,14 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     : videoMaxWidth;
 
   const showBack = searchResults && (mediaInfo.videoId || mediaInfo.playlistId) && (url === lastSearchTerm || url.trim().length === 0);
+  const initialSearchResultCount = searchResults ? getInitialSearchResultCount(searchResults.length) : 0;
+  const primarySearchResults = searchResults?.slice(0, initialSearchResultCount) || [];
+  const extraSearchResults = showAllSearchResults ? searchResults?.slice(initialSearchResultCount) || [] : [];
+  const hasExtraSearchResults = Boolean(searchResults && searchResults.length > initialSearchResultCount);
+  const selectSearchResult = (result) => {
+    if (result.type === 'playlist') loadMedia(null, result.id);
+    else loadMedia(result.id, null);
+  };
 
   return (
     <div className={`flex-1 min-h-0 w-full flex flex-col justify-start lg:justify-center gap-4 sm:gap-6 ${searchResults && !mediaInfo.videoId ? 'animate-page-fade' : ''}`}>
@@ -547,51 +595,45 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               >
                 <h3 className="text-xl font-semibold text-zinc-100 mb-6 px-2">Search Results</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {searchResults.map((vid, idx) => {
-                    const isPlaylist = vid.type === 'playlist';
-                    return (
-                      <button 
-                        key={`${vid.id}-${idx}`}
-                        onClick={() => {
-                          if (isPlaylist) {
-                            loadMedia(null, vid.id);
-                          } else {
-                            loadMedia(vid.id, null);
-                          }
-                        }}
-                        className="flex flex-col text-left group hover:bg-zinc-800/50 p-2 rounded-xl transition-colors"
-                      >
-                        <div className="w-full aspect-video bg-zinc-800 rounded-lg relative overflow-hidden mb-3 shadow-md group-hover:shadow-lg transition-all">
-                          <ThumbnailImage 
-                            src={`https://img.youtube.com/vi/${isPlaylist && vid.thumbnail.includes('/vi/') ? vid.thumbnail.split('/vi/')[1].split('/')[0] : vid.id}/maxresdefault.jpg`} 
-                            videoId={isPlaylist && vid.thumbnail.includes('/vi/') ? vid.thumbnail.split('/vi/')[1].split('/')[0] : vid.id}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
-                            alt="" 
-                          />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                            {isPlaylist ? (
-                              <ListVideo size={32} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-                            ) : (
-                              <Play size={32} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" fill="currentColor" />
-                            )}
-                          </div>
-                          {isPlaylist ? (
-                            <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-2 py-1 rounded flex items-center gap-1.5 shadow-sm border border-white/10">
-                              <ListVideo size={12} />
-                              <span>{vid.videoCount}</span>
-                            </div>
-                          ) : vid.lengthSeconds ? (
-                            <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
-                              {formatDuration(vid.lengthSeconds)}
-                            </div>
-                          ) : null}
-                        </div>
-                        <h4 className="font-medium text-zinc-100 line-clamp-2 leading-snug mb-1 group-hover:text-brand-500 transition-colors">{vid.title}</h4>
-                        <p className="text-sm text-zinc-400 mt-1 line-clamp-1">{vid.author}</p>
-                      </button>
-                    );
-                  })}
+                  {primarySearchResults.map(vid => (
+                    <SearchResultCard key={`${vid.type}:${vid.id}`} vid={vid} onSelect={selectSearchResult} formatDuration={formatDuration} />
+                  ))}
                 </div>
+                {hasExtraSearchResults && !showAllSearchResults && (
+                  <div className="flex justify-center mt-6">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllSearchResults(true)}
+                      className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm font-semibold text-zinc-100 transition-colors"
+                    >
+                      Show more ({searchResults.length - initialSearchResultCount})
+                    </button>
+                  </div>
+                )}
+                {extraSearchResults.length > 0 && (
+                  <>
+                    <div className="flex flex-wrap justify-center gap-4 mt-4">
+                      {extraSearchResults.map(vid => (
+                        <SearchResultCard
+                          key={`${vid.type}:${vid.id}`}
+                          vid={vid}
+                          onSelect={selectSearchResult}
+                          formatDuration={formatDuration}
+                          className="w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
+                        />
+                      ))}
+                    </div>
+                    <div className="flex justify-center mt-6">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllSearchResults(false)}
+                        className="px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-sm font-medium text-zinc-300 transition-colors"
+                      >
+                        Show less
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : isFeedLoading ? (
               <div key="loading-spinner" className="w-full flex items-center justify-center min-h-[400px]">

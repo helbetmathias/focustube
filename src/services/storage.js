@@ -66,16 +66,17 @@ export const saveFeedCache = async (feedArray) => {
 
 export const getHomeBlendCache = async () => {
   try {
-    const feed = await get('puretube_home_blend_v2');
-    return feed || [];
+    const cache = await get('puretube_home_blend_v3');
+    if (cache && Array.isArray(cache.feed)) return cache;
+    return null;
   } catch {
-    return [];
+    return null;
   }
 };
 
-export const saveHomeBlendCache = async (feedArray) => {
+export const saveHomeBlendCache = async (feedArray, historySignature) => {
   try {
-    await set('puretube_home_blend_v2', feedArray);
+    await set('puretube_home_blend_v3', { feed: feedArray, historySignature });
   } catch (error) {
     console.error('Failed to save home blend to IndexedDB:', error);
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getTargetFeedSize } from '../src/utils/feed.js';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getHomeHistoryContext, getTargetFeedSize } from '../src/utils/feed.js';
 
 const videos = (prefix, count) => Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }));
 
@@ -11,6 +11,32 @@ test('feed size grows in complete desktop rows', () => {
   assert.equal(getTargetFeedSize(3), 16);
   assert.equal(getTargetFeedSize(4), 20);
   assert.equal(getTargetFeedSize(10), 20);
+});
+
+test('home context always selects the four latest unique creators', () => {
+  const context = getHomeHistoryContext([
+    { id: 'old-a', author: 'Alpha', timestamp: 1 },
+    { id: 'new-e', author: 'Echo', timestamp: 6 },
+    { id: 'new-a', author: 'alpha', timestamp: 5 },
+    { id: 'new-d', author: 'Delta', timestamp: 4 },
+    { id: 'new-c', author: 'Charlie', timestamp: 3 },
+    { id: 'new-b', author: 'Bravo', timestamp: 2 },
+  ]);
+
+  assert.deepEqual(context.creators, ['Echo', 'alpha', 'Delta', 'Charlie']);
+  assert.equal(context.newestSeed.id, 'new-e');
+});
+
+test('home cache signature changes for a new creator or related-video seed', () => {
+  const original = getHomeHistoryContext([{ id: 'video-1', author: 'Alpha', timestamp: 1 }]);
+  const newVideo = getHomeHistoryContext([{ id: 'video-2', author: 'Alpha', timestamp: 2 }]);
+  const newCreator = getHomeHistoryContext([
+    { id: 'video-3', author: 'Bravo', timestamp: 3 },
+    { id: 'video-1', author: 'Alpha', timestamp: 1 },
+  ]);
+
+  assert.notEqual(original.signature, newVideo.signature);
+  assert.notEqual(original.signature, newCreator.signature);
 });
 
 test('creator results are interleaved and trimmed to a complete row', () => {

@@ -1,5 +1,30 @@
 const DESKTOP_COLUMNS = 4;
 
+export function getHomeHistoryContext(history, creatorLimit = 4) {
+  const sortedHistory = Array.isArray(history)
+    ? [...history].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0))
+    : [];
+  const creators = [];
+  const seenCreators = new Set();
+
+  for (const item of sortedHistory) {
+    const author = item.author?.trim();
+    const key = author?.toLocaleLowerCase();
+    if (!key || seenCreators.has(key)) continue;
+    seenCreators.add(key);
+    creators.push(author);
+    if (creators.length >= creatorLimit) break;
+  }
+
+  const newestSeed = sortedHistory[0] || null;
+  const signature = JSON.stringify({
+    creators: creators.map(creator => creator.toLocaleLowerCase()),
+    seedVideoId: newestSeed?.id || null,
+  });
+
+  return { sortedHistory, creators, newestSeed, signature };
+}
+
 export function getTargetFeedSize(creatorCount) {
   if (creatorCount <= 0) return 0;
   return Math.min(20, (creatorCount + 1) * DESKTOP_COLUMNS);
