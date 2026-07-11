@@ -33,7 +33,7 @@ export const getTimeSaved = async () => {
   try {
     const time = await get('puretube_time_saved');
     return time || 0;
-  } catch (error) {
+  } catch {
     return 0;
   }
 };
@@ -51,7 +51,7 @@ export const getFeedCache = async () => {
   try {
     const feed = await get('puretube_feed_cache');
     return feed || [];
-  } catch (error) {
+  } catch {
     return [];
   }
 };
@@ -66,17 +66,34 @@ export const saveFeedCache = async (feedArray) => {
 
 export const getHomeBlendCache = async () => {
   try {
-    const feed = await get('puretube_home_blend');
+    const feed = await get('puretube_home_blend_v2');
     return feed || [];
-  } catch (error) {
+  } catch {
     return [];
   }
 };
 
 export const saveHomeBlendCache = async (feedArray) => {
   try {
-    await set('puretube_home_blend', feedArray);
+    await set('puretube_home_blend_v2', feedArray);
   } catch (error) {
     console.error('Failed to save home blend to IndexedDB:', error);
+  }
+};
+
+export const getHomeReserveCache = async () => {
+  try {
+    const feed = await get('puretube_home_reserve_v2');
+    return feed || [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveHomeReserveCache = async (feedArray) => {
+  try {
+    await set('puretube_home_reserve_v2', feedArray);
+  } catch (error) {
+    console.error('Failed to save home reserve to IndexedDB:', error);
   }
 };

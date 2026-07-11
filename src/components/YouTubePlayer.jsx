@@ -30,11 +30,6 @@ const ThumbnailImage = ({ src, videoId, alt, className }) => {
     }
   };
 
-  useEffect(() => {
-    // Check immediately in case the image was loaded synchronously from cache
-    checkPlaceholder();
-  }, [level]);
-
   return (
     <img
       ref={imgRef}
@@ -81,7 +76,7 @@ const getInitialSettings = () => {
         return { ...DEFAULT_SETTINGS, ...parsed };
       }
     }
-  } catch(e) {}
+  } catch {}
   return DEFAULT_SETTINGS;
 };
 
@@ -100,10 +95,13 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   const playerRef = useRef(null);
   const idleTimeoutRef = useRef(null);
   const hasPlayedRef = useRef(false);
+  const lastProgressReportRef = useRef(Number.NEGATIVE_INFINITY);
+  const relatedRequestIdRef = useRef(0);
+  const relatedStatusRef = useRef({ videoId: null, loading: false, hasResults: false, failed: false });
   
   const [segments, setSegments] = useState([]);
   const [settings, setSettings] = useState(getInitialSettings);
-  const [showNotifications, setShowNotifications] = useState(getInitialNotifications);
+  const [showNotifications] = useState(getInitialNotifications);
   const [recommMode, setRecommMode] = useState(() => localStorage.getItem('puretube_recomm') || 'all');
   
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -204,7 +202,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     try {
       const current = await getTimeSaved();
       await saveTimeSaved(current + secondsSkipped);
-    } catch (e) {}
+    } catch {}
   };
 
   const executeSkip = useCallback((segment) => {
@@ -219,20 +217,24 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     }
   }, [addToast]);
 
-  const latestProps = useRef({ videoId, playlistId, settings, onVideoChange });
+  const latestProps = useRef({ videoId, playlistId, settings, onVideoChange, onProgress });
   useEffect(() => {
-    latestProps.current = { videoId, playlistId, settings, onVideoChange };
-  }, [videoId, playlistId, settings, onVideoChange]);
+    latestProps.current = { videoId, playlistId, settings, onVideoChange, onProgress };
+  }, [videoId, playlistId, settings, onVideoChange, onProgress]);
 
   useEffect(() => {
     if (!videoId && !playlistId) return;
 
     hasPlayedRef.current = false;
+    lastProgressReportRef.current = Number.NEGATIVE_INFINITY;
     setHideHighlight(false);
     setShowOverlay(false);
     setOverlayType('paused');
     setRelatedVideos(null);
     setRelatedError(false);
+    setIsFetchingRelated(false);
+    relatedRequestIdRef.current += 1;
+    relatedStatusRef.current = { videoId: null, loading: false, hasResults: false, failed: false };
 
     const loadSegments = async (vId) => {
       const data = await fetchSkipSegments(vId);
@@ -274,6 +276,9 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
           start: startSeconds !== undefined && startSeconds !== null ? Math.floor(startSeconds) : 0,
         },
         events: {
+          onError: (event) => {
+            console.error('YouTube player error', event.data, playerRef.current?.getVideoData?.());
+          },
           onReady: (e) => {
             setDuration(e.target.getDuration());
             if (startSeconds !== undefined && startSeconds !== null) {
@@ -283,38 +288,79 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
           onStateChange: (e) => {
             const triggerRelatedFetch = (currentVideoData) => {
               if (!currentVideoData || !currentVideoData.video_id) return;
-              
-              if (!window._fetchingRelatedFor || window._fetchingRelatedFor !== currentVideoData.video_id) {
-                window._fetchingRelatedFor = currentVideoData.video_id;
-                window._relatedErrorFor = null;
-                
-                // Reset state if we are fetching for a new video
-                setRelatedVideos(prev => {
-                  if (prev === null) return prev;
-                  return null;
+
+              const videoIdToFetch = currentVideoData.video_id;
+              const currentStatus = relatedStatusRef.current;
+              if (currentStatus.videoId === videoIdToFetch && (currentStatus.loading || currentStatus.hasResults)) return;
+
+              const requestId = ++relatedRequestIdRef.current;
+              relatedStatusRef.current = { videoId: videoIdToFetch, loading: true, hasResults: false, failed: false };
+              setRelatedVideos(null);
+              setIsFetchingRelated(true);
+              setRelatedError(false);
+
+              let finishedSources = 0;
+
+              const cacheVideos = (videos) => {
+                getFeedCache().then(existing => {
+                  const prevCache = existing || [];
+                  const newIds = new Set(videos.map(v => v.id));
+                  const keepPrev = prevCache.filter(v => !newIds.has(v.id)).slice(0, 10);
+                  const newSample = videos.slice(0, 10);
+                  const combined = [...newSample, ...keepPrev].sort(() => 0.5 - Math.random());
+                  saveFeedCache(combined);
                 });
-                
-                setIsFetchingRelated(true);
-                setRelatedError(false);
-                
-                fetchRelatedVideos(currentVideoData.video_id)
-                  .then(videos => {
-                    setRelatedVideos(videos);
+              };
+
+              const markSourceFailed = () => {
+                finishedSources += 1;
+                if (requestId !== relatedRequestIdRef.current) return;
+                if (finishedSources >= 2 && !relatedStatusRef.current.hasResults) {
+                  relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: false, failed: true };
+                  setRelatedError(true);
+                  setIsFetchingRelated(false);
+                }
+              };
+
+              const applyResults = (videos, source) => {
+                finishedSources += 1;
+                if (requestId !== relatedRequestIdRef.current) return;
+                if (!Array.isArray(videos) || videos.length === 0) {
+                  if (finishedSources >= 2 && !relatedStatusRef.current.hasResults) {
+                    relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: false, failed: true };
+                    setRelatedError(true);
                     setIsFetchingRelated(false);
-                    getFeedCache().then(existing => {
-                      const prevCache = existing || [];
-                      const newIds = new Set(videos.map(v => v.id));
-                      const keepPrev = prevCache.filter(v => !newIds.has(v.id)).slice(0, 10);
-                      const newSample = videos.slice(0, 10);
-                      const combined = [...newSample, ...keepPrev].sort(() => 0.5 - Math.random());
-                      saveFeedCache(combined);
-                    });
-                  })
-                  .catch(() => {
-                    // Fail silently in the background, mark it for fallback when paused
-                    window._relatedErrorFor = currentVideoData.video_id;
+                  }
+                  return;
+                }
+
+                relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: true, failed: false };
+                setRelatedError(false);
+                setIsFetchingRelated(false);
+
+                if (source === 'real') {
+                  // Real related results take priority, while retaining unique search fallbacks for variety.
+                  setRelatedVideos(previous => {
+                    const fallback = Array.isArray(previous) ? previous : [];
+                    const realIds = new Set(videos.map(video => video.id));
+                    return [...videos, ...fallback.filter(video => !realIds.has(video.id))].slice(0, 20);
                   });
-              }
+                } else {
+                  // Search results win the race only when real recommendations have not arrived yet.
+                  setRelatedVideos(previous => Array.isArray(previous) && previous.length > 0 ? previous : videos);
+                }
+
+                cacheVideos(videos);
+              };
+
+              // Run both sources together: search is the fast fallback, real related data is preferred when available.
+              fetchRelatedVideos(videoIdToFetch)
+                .then(videos => applyResults(videos, 'real'))
+                .catch(markSourceFailed);
+
+              fetchAuthorFallback(currentVideoData.author, videoIdToFetch)
+                .then(videos => applyResults(videos, 'search'))
+                .catch(markSourceFailed);
             };
 
             if (e.data === window.YT.PlayerState.PLAYING) {
@@ -360,37 +406,19 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
                 return;
               }
 
+              const transitionTime = playerRef.current.getCurrentTime?.() || 0;
+              const transitionDuration = playerRef.current.getDuration?.() || 0;
+              latestProps.current.onProgress?.(transitionTime, transitionDuration);
+              lastProgressReportRef.current = Math.floor(transitionTime);
+
               setOverlayType(e.data === window.YT.PlayerState.ENDED ? 'ended' : 'paused');
               setShowOverlay(recommMode === 'all');
               
               const currentVideoData = playerRef.current.getVideoData();
               if (currentVideoData && currentVideoData.video_id) {
-                if (window._relatedErrorFor === currentVideoData.video_id) {
-                  // Background fetch failed, execute fallback now that user paused!
-                  window._relatedErrorFor = null; // Prevent infinite retries on pause
-                  
-                  setIsFetchingRelated(true);
-                  setRelatedError(false);
-                  
-                  fetchAuthorFallback(currentVideoData.author, currentVideoData.video_id)
-                    .then(videos => {
-                      setRelatedVideos(videos);
-                      setIsFetchingRelated(false);
-                      getFeedCache().then(existing => {
-                        const prevCache = existing || [];
-                        const newIds = new Set(videos.map(v => v.id));
-                        const keepPrev = prevCache.filter(v => !newIds.has(v.id)).slice(0, 10);
-                        const newSample = videos.slice(0, 10);
-                        const combined = [...newSample, ...keepPrev].sort(() => 0.5 - Math.random());
-                        saveFeedCache(combined);
-                      });
-                    })
-                    .catch(() => {
-                      setRelatedError(true);
-                      setIsFetchingRelated(false);
-                    });
-                } else if (!window._fetchingRelatedFor) {
-                  // Fallback safety net if play event was missed somehow
+                const status = relatedStatusRef.current;
+                if (status.videoId !== currentVideoData.video_id || (!status.loading && !status.hasResults && !status.failed)) {
+                  // Safety net if the play event was missed before pausing.
                   triggerRelatedFetch(currentVideoData);
                 }
               }
@@ -411,7 +439,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     }
 
     // Do NOT destroy the player on cleanup! We want to reuse it.
-  }, [videoId, playlistId, recommMode]); 
+  }, [videoId, playlistId, recommMode, isMobile, startSeconds]);
 
   // Highlight 10s Timeout
   useEffect(() => {
@@ -437,7 +465,9 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
 
         if (playerRef.current.getPlayerState() === window.YT.PlayerState.PLAYING) {
           
-          if (onProgress && Math.floor(cTime) % 5 === 0) {
+          const progressSecond = Math.floor(cTime);
+          if (onProgress && progressSecond - lastProgressReportRef.current >= 10) {
+            lastProgressReportRef.current = progressSecond;
             onProgress(cTime, playerRef.current.getDuration());
           }
 

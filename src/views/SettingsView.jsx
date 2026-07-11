@@ -51,7 +51,7 @@ const getInitialSettings = () => {
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
     }
-  } catch(e) {}
+  } catch {}
   return DEFAULT_SETTINGS;
 };
 
@@ -180,11 +180,9 @@ export default function SettingsView({ isActive }) {
         <section>
           <h3 className="text-lg font-semibold mb-3 text-zinc-300">Preferences</h3>
           <div className="grid gap-3 lg:gap-4 sm:grid-cols-2">
-            {CATEGORIES.map((cat, idx) => {
+            {CATEGORIES.map((cat) => {
               const action = settings[cat.id];
               const Icon = cat.icon;
-              // If it's the last item and we have an odd number of items, center it across both columns
-              const isLastOdd = idx === CATEGORIES.length - 1 && CATEGORIES.length % 2 !== 0;
               
               return (
                 <div 

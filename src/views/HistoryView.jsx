@@ -28,10 +28,6 @@ const ThumbnailImage = ({ src, videoId, alt, className }) => {
     }
   };
 
-  useEffect(() => {
-    checkPlaceholder();
-  }, [level]);
-
   return (
     <img
       ref={imgRef}

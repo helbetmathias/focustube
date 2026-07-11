@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGrid } from 'lucide-react';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getTargetFeedSize } from '../utils/feed';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
-import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache } from '../services/storage';
+import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
 
 const ThumbnailImage = ({ src, videoId, alt, className }) => {
   const [level, setLevel] = useState(0);
@@ -30,10 +31,6 @@ const ThumbnailImage = ({ src, videoId, alt, className }) => {
       }
     }
   };
-
-  useEffect(() => {
-    checkPlaceholder();
-  }, [level]);
 
   return (
     <img
@@ -65,12 +62,13 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [homeFeed, setHomeFeed] = useState(null);
-  const [lastFeedGenTime, setLastFeedGenTime] = useState(() => Number(localStorage.getItem('puretube_last_feed_gen')) || 0);
   const [lastSearchTerm, setLastSearchTerm] = useState('');
   const [disableFeedAnims, setDisableFeedAnims] = useState(false);
   const [isFeedLoading, setIsFeedLoading] = useState(true);
   const currentVideoIdRef = useRef(null);
   const lastFeedGenTimeRef = useRef(Number(localStorage.getItem('puretube_last_feed_gen')) || 0);
+  const homeFeedRequestIdRef = useRef(0);
+  const historyWriteQueueRef = useRef(Promise.resolve());
 
   const formatDuration = (seconds) => {
     if (!seconds) return '';
@@ -105,7 +103,9 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   }, []);
 
   // Load Home Feed
-  const loadHomeFeed = async (forceRefresh = false) => {
+  const loadHomeFeed = useCallback(async (forceRefresh = false) => {
+    const requestId = ++homeFeedRequestIdRef.current;
+
     if (recommMode === 'off') {
         setIsFeedLoading(false);
         return;
@@ -113,7 +113,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     setIsFeedLoading(true);
     if (!forceRefresh) {
       const cache = await getHomeBlendCache();
-      if (cache && cache.length > 0) {
+      const validFeedSizes = new Set([8, 12, 16, 20]);
+      if (cache && validFeedSizes.has(cache.length)) {
         setHomeFeed(cache);
         setIsFeedLoading(false);
         return;
@@ -139,80 +140,84 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         return;
       }
 
-      // 50/50 split means 10 author videos, 10 related videos.
+      // Grow by complete four-card desktop rows as FocusTube learns more creators.
       const numAuthors = shuffledAuthors.length;
-      const videosPerAuthor = Math.max(3, Math.ceil(10 / numAuthors));
+      const targetFeedSize = getTargetFeedSize(numAuthors);
+      const videosPerAuthor = Math.ceil(targetFeedSize / numAuthors);
 
       const historyIds = new Set(history.map(h => h.id));
 
-      let blended = [];
-      
-      // Branch 1: The Loyal Fan (Creator Search)
-      let authorVideos = [];
-      for (const author of shuffledAuthors) {
-        try {
-          const res = await fetchSearchResults(author, true);
-          if (res && res.length > 0) {
-            const unseenVideos = res.filter(v => v.type === 'video' && !historyIds.has(v.id));
-            authorVideos.push(unseenVideos.slice(0, videosPerAuthor));
-          }
-        } catch (e) {
-          console.warn("Home feed search failed for", author);
-        }
-      }
+      // Phase 1: fetch creator searches together and render them immediately.
+      const authorResults = await Promise.allSettled(
+        shuffledAuthors.map(author => fetchSearchResults(author, true))
+      );
 
-      for (let i = 0; i < videosPerAuthor; i++) {
-        for (let j = 0; j < authorVideos.length; j++) {
-          if (authorVideos[j][i]) {
-            blended.push(authorVideos[j][i]);
-          }
+      const authorVideos = authorResults.map((result, index) => {
+        if (result.status !== 'fulfilled' || !Array.isArray(result.value)) {
+          console.warn("Home feed search failed for", shuffledAuthors[index]);
+          return [];
         }
-      }
-      
-      // Branch 2: The Explorer (Related Videos)
-      let relatedVideos = [];
-      // Take up to 3 most recently watched videos to source recommendations from
-      const seedVideos = history.slice(0, 3);
-      for (const seed of seedVideos) {
-        try {
-          const res = await fetchRelatedVideos(seed.id);
-          if (res && res.length > 0) {
-            const unseenRelated = res.filter(v => v.type === 'video' && !historyIds.has(v.id));
-            relatedVideos.push(...unseenRelated);
-          }
-        } catch (e) {
-          console.warn("Home feed related search failed for", seed.id);
-        }
-      }
-      
-      // Shuffle the related videos and take up to 10
-      relatedVideos.sort(() => 0.5 - Math.random());
-      blended.push(...relatedVideos.slice(0, 10));
 
-      // Shuffle the final hybrid feed so it's a perfect mix
-      blended.sort(() => 0.5 - Math.random());
-      
-      // Guarantee exactly 20 videos total
-      blended = blended.slice(0, 20);
+        const seenInThisAuthor = new Set();
+        return result.value
+          .filter(video => {
+            if (video.type !== 'video' || historyIds.has(video.id) || seenInThisAuthor.has(video.id)) return false;
+            seenInThisAuthor.add(video.id);
+            return true;
+          })
+          .slice(0, videosPerAuthor);
+      });
 
-      if (blended.length > 0) {
-        setHomeFeed(blended);
+      // Never render an orphaned desktop row. Keep overflow ready for future reshuffles.
+      const { visibleFeed: fastFeed, reserveFeed, creatorIds } = buildBalancedCreatorFeed(authorVideos, targetFeedSize);
+
+      if (requestId !== homeFeedRequestIdRef.current) return;
+
+      saveHomeReserveCache(reserveFeed);
+
+      if (fastFeed.length > 0) {
+        setHomeFeed(fastFeed);
         setIsFeedLoading(false);
-        saveHomeBlendCache(blended);
+        saveHomeBlendCache(fastFeed);
         lastFeedGenTimeRef.current = Date.now();
         localStorage.setItem('puretube_last_feed_gen', lastFeedGenTimeRef.current.toString());
-        setLastFeedGenTime(lastFeedGenTimeRef.current);
+      }
+
+      // Phase 2: try real related recommendations in the background. They never block the fast feed.
+      const newestSeed = sortedHistory[0];
+      if (newestSeed?.id) {
+        fetchRelatedVideos(newestSeed.id)
+          .then(realResults => {
+            if (requestId !== homeFeedRequestIdRef.current || !Array.isArray(realResults)) return;
+
+            const realIds = new Set();
+            const realFeed = realResults.filter(video => {
+              if (video.type !== 'video' || historyIds.has(video.id) || creatorIds.has(video.id) || realIds.has(video.id)) return false;
+              realIds.add(video.id);
+              return true;
+            });
+
+            if (realFeed.length === 0) return;
+
+            // Replace creator cards one-for-one so enrichment never changes grid height.
+            const finalFeed = blendRecommendationSources(fastFeed, realFeed);
+            setHomeFeed(finalFeed);
+            saveHomeBlendCache(finalFeed);
+          })
+          .catch(() => {
+            // Creator search results are already visible, so related API failure is non-blocking.
+          });
       }
     } catch (e) {
       console.error("Failed to build history feed", e);
     } finally {
       setIsFeedLoading(false);
     }
-  };
+  }, [recommMode]);
 
   useEffect(() => {
     loadHomeFeed();
-  }, [recommMode]);
+  }, [loadHomeFeed]);
 
   useEffect(() => {
     if (!isActive) {
@@ -241,13 +246,13 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         } else {
           loadHomeFeed(false);
         }
-      } catch (e) {
+      } catch {
         loadHomeFeed(true);
       }
     };
     window.addEventListener('focustube_refresh_feed', handleRefresh);
     return () => window.removeEventListener('focustube_refresh_feed', handleRefresh);
-  }, []);
+  }, [loadHomeFeed]);
 
   // Ensure scroll resets to top when a completely new feed is rendered
   useEffect(() => {
@@ -268,24 +273,20 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     }
   }, [mediaInfo.playlistId]);
 
-  useEffect(() => {
-    if (playRequest) {
-      loadMedia(playRequest.videoId, playRequest.playlistId, playRequest.forceStart);
-    }
-  }, [playRequest]);
+  const activePlaylistIndex = playlistData?.currentIndex ?? -1;
 
   // Auto-scroll to active playlist item when the playlist is active
   useEffect(() => {
-    if (playlistData && playlistData.currentIndex >= 0 && isActive) {
+    if (activePlaylistIndex >= 0 && isActive) {
       const timer = setTimeout(() => {
-        const el = document.getElementById(`playlist-item-${playlistData.currentIndex}`);
+        const el = document.getElementById(`playlist-item-${activePlaylistIndex}`);
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [playlistData?.currentIndex, isActive]);
+  }, [activePlaylistIndex, isActive]);
 
   const loadMedia = async (vid, pid, forceStart = false) => {
     let progress = 0;
@@ -294,7 +295,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         const history = await getHistory();
         const item = history.find(i => i.id === vid);
         if (item && item.progress) progress = item.progress;
-      } catch(e) {}
+      } catch {}
     }
     setStartSeconds(progress);
     setMediaInfo({ videoId: vid, playlistId: pid });
@@ -304,6 +305,12 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       setPlaylistData(null);
     }
   };
+
+  useEffect(() => {
+    if (playRequest) {
+      loadMedia(playRequest.videoId, playRequest.playlistId, playRequest.forceStart);
+    }
+  }, [playRequest]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -331,30 +338,34 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   };
 
   const updateHistory = async (id, title, progress, duration, author) => {
-    try {
-      const history = await getHistory();
-      
-      const existingIdx = history.findIndex(item => item.id === id);
-      const existingItem = existingIdx >= 0 ? history[existingIdx] : null;
-      
-      if (existingIdx >= 0) history.splice(existingIdx, 1);
-      
-      history.unshift({
-        ...(existingItem || {}),
-        id,
-        title: title || (existingItem ? existingItem.title : ''),
-        author: author || (existingItem ? existingItem.author : undefined),
-        timestamp: Date.now(),
-        type: 'video',
-        progress: progress !== undefined ? progress : (existingItem ? existingItem.progress : 0),
-        duration: duration || (existingItem ? existingItem.duration : 0),
-        playlistId: mediaInfo.playlistId || undefined
-      });
-      
-      await saveHistory(history);
-    } catch(e) {
-      console.error('Failed to save history', e);
-    }
+    const playlistId = mediaInfo.playlistId || undefined;
+
+    const writeHistory = async () => {
+      try {
+        const history = await getHistory();
+        const existingItem = history.find(item => item.id === id);
+        const updatedHistory = history.filter(item => item.id !== id);
+
+        updatedHistory.unshift({
+          ...(existingItem || {}),
+          id,
+          title: title || existingItem?.title || '',
+          author: author || existingItem?.author,
+          timestamp: Date.now(),
+          type: 'video',
+          progress: progress !== undefined ? progress : (existingItem?.progress || 0),
+          duration: duration || existingItem?.duration || 0,
+          playlistId
+        });
+
+        await saveHistory(updatedHistory.slice(0, 500));
+      } catch (error) {
+        console.error('Failed to save history', error);
+      }
+    };
+
+    historyWriteQueueRef.current = historyWriteQueueRef.current.then(writeHistory, writeHistory);
+    return historyWriteQueueRef.current;
   };
 
   const handleVideoChange = ({ id, title, author, playlist, playlistIndex }) => {
@@ -484,7 +495,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
                           <p className={`text-sm line-clamp-2 leading-snug ${idx === playlistData.currentIndex ? 'text-zinc-100 font-medium' : 'text-zinc-400'}`}>
-                            {richData?.title || (idx === playlistData.currentIndex ? (currentVideoIdRef.current === vid ? "Currently Playing" : `Video ${idx + 1}`) : `Video ${idx + 1}`)}
+                            {richData?.title || (idx === playlistData.currentIndex ? (mediaInfo.videoId === vid ? "Currently Playing" : `Video ${idx + 1}`) : `Video ${idx + 1}`)}
                           </p>
                           {richData?.author && (
                             <button 

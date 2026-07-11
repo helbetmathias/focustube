@@ -10,10 +10,17 @@ export function parseYouTubeUrl(url) {
     const urlObj = new URL(url);
     const result = { videoId: null, playlistId: null, query: null };
 
-    if (urlObj.hostname.includes('youtube.com')) {
+    const hostname = urlObj.hostname.toLowerCase();
+    const isYouTubeHost = hostname === 'youtube.com' || hostname.endsWith('.youtube.com');
+
+    if (isYouTubeHost) {
       result.videoId = urlObj.searchParams.get('v');
       result.playlistId = urlObj.searchParams.get('list');
-    } else if (urlObj.hostname === 'youtu.be') {
+      if (!result.videoId) {
+        const pathMatch = urlObj.pathname.match(/^\/(?:shorts|embed|live)\/([^/?]+)/);
+        result.videoId = pathMatch?.[1] || null;
+      }
+    } else if (hostname === 'youtu.be') {
       result.videoId = urlObj.pathname.slice(1);
       result.playlistId = urlObj.searchParams.get('list');
     }
@@ -25,7 +32,7 @@ export function parseYouTubeUrl(url) {
     }
 
     return result;
-  } catch (e) {
+  } catch {
     // Treat as search query
     return { videoId: null, playlistId: null, query: url.trim() };
   }
