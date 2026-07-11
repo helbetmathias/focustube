@@ -1,31 +1,11 @@
-const INSTANCE_POOL = [
-  "https://inv.thepixora.com",
-  "https://vid.puffyan.us",
-  "https://invidious.jing.rocks",
-  "https://inv.tux.pizza",
-  "https://invidious.nerdvpn.de",
-  "https://inv.nadeko.net",
-  "https://yt.cdaut.de",
-  "https://inv.us.projectsegfau.lt",
-  "https://invidious.lunar.icu",
-  "https://invidious.snopyta.org",
-  "https://yewtu.be",
-  "https://invidious.tiekoetter.com",
-  "https://invidious.mutahar.rocks",
-  "https://invidious.slipfox.xyz",
-  "https://invidious.weblibre.org",
-  "https://invidious.privacydev.net",
-  "https://invidious.esmailelbob.xyz",
-  "https://invidious.projectsegfau.lt",
-  "https://yt.chocolatemoo53.com"
-];
+import {
+  INVIDIOUS_CAPABILITIES as CAPABILITIES,
+  INVIDIOUS_INSTANCES as INSTANCE_POOL,
+  PREFERRED_SEARCH_INSTANCE,
+} from '../../shared/invidious.js';
 
-const PREFERRED_SEARCH_INSTANCE = "https://yt.chocolatemoo53.com";
-const CAPABILITIES = {
-  SEARCH: 'search',
-  RELATED: 'related',
-  PLAYLIST: 'playlist'
-};
+const ROUTER_API_URL = import.meta.env?.VITE_FOCUSTUBE_API_URL
+  || (import.meta.env?.PROD ? '/api/youtube' : null);
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS_PER_REQUEST = 5;
 
@@ -109,12 +89,12 @@ function markInstanceFailed(uri, capability) {
   failedByCapability[capability].set(uri, Date.now());
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs) {
+async function fetchJsonWithTimeout(url, timeoutMs, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
     if (!response.ok) {
       throw new Error(`Provider returned HTTP ${response.status}`);
     }
@@ -124,7 +104,34 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   }
 }
 
+async function fetchFromRouter(operation, params, timeoutMs = 8000) {
+  if (!ROUTER_API_URL) throw new Error('Provider router is not configured');
+
+  const payload = await fetchJsonWithTimeout(ROUTER_API_URL, timeoutMs, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation, ...params }),
+  });
+  if (!payload?.ok || payload.data === undefined) throw new Error('Provider router returned invalid data');
+  return payload.data;
+}
+
 export async function fetchRelatedVideos(videoId) {
+  try {
+    const data = await fetchFromRouter(CAPABILITIES.RELATED, { id: videoId });
+    return data.recommendedVideos.map(video => ({
+      id: video.videoId,
+      title: video.title,
+      author: video.author,
+      lengthSeconds: video.lengthSeconds,
+      viewCount: video.viewCountText || video.viewCount,
+      thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`,
+      type: 'video'
+    }));
+  } catch {
+    // The original browser-side provider pool remains the offline fallback.
+  }
+
   const instances = getInstances(CAPABILITIES.RELATED);
 
   for (const uri of instances) {
@@ -183,6 +190,24 @@ export async function fetchAuthorFallback(author, excludeVideoId) {
 }
 
 export async function fetchPlaylistDetails(playlistId) {
+  try {
+    const data = await fetchFromRouter(CAPABILITIES.PLAYLIST, { id: playlistId });
+    return {
+      title: data.title,
+      author: data.author,
+      videoCount: data.videoCount,
+      videos: data.videos.map(video => ({
+        id: video.videoId,
+        title: video.title,
+        author: video.author,
+        lengthSeconds: video.lengthSeconds,
+        thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
+      }))
+    };
+  } catch {
+    // The original browser-side provider pool remains the offline fallback.
+  }
+
   const instances = getInstances(CAPABILITIES.PLAYLIST);
 
   for (const uri of instances) {
@@ -245,6 +270,16 @@ function normalizeSearchResults(data) {
 }
 
 export async function fetchSearchResults(query, singlePage = false) {
+  try {
+    const data = await fetchFromRouter(CAPABILITIES.SEARCH, {
+      q: query,
+      pages: singlePage ? '1' : '2'
+    });
+    return normalizeSearchResults(data);
+  } catch {
+    // The original browser-side provider pool remains the offline fallback.
+  }
+
   const instances = getInstances(CAPABILITIES.SEARCH);
   const encodedQuery = encodeURIComponent(query);
 

@@ -23,4 +23,10 @@ export default defineConfig([
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
+  {
+    files: ['api/**/*.js', 'server/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

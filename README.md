@@ -50,4 +50,10 @@ npm run preview
 Open your browser and navigate to the preview URL provided (usually `http://localhost:4173`).
 
 ## 🔒 Privacy Note
-FocusTube acts entirely on the client side. There is no central server tracking your watch habits. Recommendations are fetched pseudonymously by querying public Invidious API instances.
+FocusTube keeps watch history and preferences in the browser. The optional provider router forwards search, playlist, and recommendation requests to public Invidious instances without storing responses or watch history.
+
+## Vercel Provider Router
+
+Production builds use `/api/youtube` as a server-side Invidious provider router. The browser automatically falls back to the direct provider pool if the function is unavailable. Local Vite development keeps using the direct pool unless `VITE_FOCUSTUBE_API_URL` is set.
+
+For a separately hosted frontend, set `VITE_FOCUSTUBE_API_URL` to the deployed function URL and add the frontend origin to the server-side `FOCUSTUBE_ALLOWED_ORIGINS` environment variable. Multiple origins are comma-separated. Requests use POST bodies and responses are never cached.
