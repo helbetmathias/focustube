@@ -107,6 +107,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isIdle, setIsIdle] = useState(false);
+  const [isPlayerHovered, setIsPlayerHovered] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   
@@ -159,6 +160,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     if (x === lastMousePos.current.x && y === lastMousePos.current.y) return;
 
     lastMousePos.current = { x, y };
+    setIsPlayerHovered(true);
     if (Date.now() < fullscreenPointerGraceRef.current) return;
 
     markPointerActive();
@@ -181,6 +183,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
       const enteringFullscreen = !!document.fullscreenElement;
       setIsFullscreen(enteringFullscreen);
       setIsIdle(false);
+      setIsPlayerHovered(false);
       lastPointerActivityRef.current = Date.now();
       fullscreenPointerGraceRef.current = enteringFullscreen ? Date.now() + 750 : 0;
       lastMousePos.current = { x: -1, y: -1 };
@@ -519,12 +522,16 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
 
   const isUiHidden = isFullscreen && isIdle;
   const isCursorHidden = isUiHidden && !showOverlay;
+  const isFullscreenButtonVisible = !showOverlay
+    && (isFullscreen ? !isIdle : isMobile || isPlayerHovered);
 
   return (
     <div 
       ref={wrapperRef}
       className={`w-full h-full relative overflow-hidden bg-black ${isFullscreen ? '' : 'rounded-2xl shadow-2xl border border-zinc-800'} ${isCursorHidden ? 'cursor-none' : ''}`}
       onMouseMove={handleMouseMove}
+      onMouseEnter={() => setIsPlayerHovered(true)}
+      onMouseLeave={() => setIsPlayerHovered(false)}
     >
       <div 
         ref={containerRef} 
@@ -624,7 +631,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
             e.currentTarget.blur();
             toggleFullscreen();
           }}
-          className={`absolute top-1/2 right-4 -translate-y-1/2 z-[60] flex items-center justify-center w-12 h-12 bg-black/30 hover:bg-white/10 text-white/80 hover:text-white rounded-full backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-300 hover:scale-110 active:scale-95 ${isIdle || showOverlay ? 'opacity-0 pointer-events-none' : 'opacity-100 hover:opacity-100'}`}
+          className={`absolute top-1/2 right-4 -translate-y-1/2 z-[60] flex items-center justify-center w-12 h-12 bg-black/30 hover:bg-white/10 text-white/80 hover:text-white rounded-full backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-300 hover:scale-110 active:scale-95 ${isFullscreenButtonVisible ? 'opacity-100 hover:opacity-100' : 'opacity-0 pointer-events-none'}`}
         >
           {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
         </button>
