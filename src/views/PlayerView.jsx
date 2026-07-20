@@ -461,7 +461,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setMediaInfo({ videoId: null, playlistId: null });
+                    loadMedia(null, null);
+                    setPlaylistMetadata(null);
                     setUrl(lastSearchTerm);
                   }}
                   className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 sm:px-8 py-3 rounded-xl font-semibold transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] shadow-lg flex items-center justify-center gap-2 border border-zinc-700"
