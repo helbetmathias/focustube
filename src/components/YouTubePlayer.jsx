@@ -93,7 +93,8 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   const wrapperRef = useRef(null);
   const containerRef = useRef(null);
   const playerRef = useRef(null);
-  const idleTimeoutRef = useRef(null);
+  const lastPointerActivityRef = useRef(0);
+  const fullscreenPointerGraceRef = useRef(0);
   const hasPlayedRef = useRef(false);
   const lastProgressReportRef = useRef(Number.NEGATIVE_INFINITY);
   const relatedRequestIdRef = useRef(0);
@@ -136,35 +137,53 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     };
   }, []);
 
-  // Idle Timer Logic with Coordinate Check (Ignores fake mousemoves from DOM updates)
+  // Idle Timer Logic with physical coordinate checks. SponsorBlock's moving
+  // progress marker can cause mouse events during DOM updates even when the
+  // pointer itself has not moved.
   const lastMousePos = useRef({ x: -1, y: -1 });
 
-  const handleMouseMove = useCallback((e) => {
-    // Only reset if the mouse actually changed physical coordinates
-    if (e.clientX === lastMousePos.current.x && e.clientY === lastMousePos.current.y) {
-      return;
-    }
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
-
+  const markPointerActive = useCallback(() => {
+    lastPointerActivityRef.current = Date.now();
     setIsIdle(false);
-    if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
-    idleTimeoutRef.current = setTimeout(() => {
-      setIsIdle(true);
-    }, 3000);
   }, []);
+
+  const handleMouseMove = useCallback((e) => {
+    if (e.isTrusted === false) return;
+
+    const hasScreenPosition = Number.isFinite(e.screenX)
+      && Number.isFinite(e.screenY)
+      && (e.screenX !== 0 || e.screenY !== 0);
+    const x = hasScreenPosition ? e.screenX : e.clientX;
+    const y = hasScreenPosition ? e.screenY : e.clientY;
+
+    if (x === lastMousePos.current.x && y === lastMousePos.current.y) return;
+
+    lastMousePos.current = { x, y };
+    if (Date.now() < fullscreenPointerGraceRef.current) return;
+
+    markPointerActive();
+  }, [markPointerActive]);
 
   useEffect(() => {
-    return () => {
-      if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
-    };
-  }, []);
+    if (!isFullscreen) return undefined;
+
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastPointerActivityRef.current >= 3000) {
+        setIsIdle(true);
+      }
+    }, 250);
+
+    return () => clearInterval(watchdog);
+  }, [isFullscreen]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const enteringFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(enteringFullscreen);
       setIsIdle(false);
-      if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
-      idleTimeoutRef.current = setTimeout(() => setIsIdle(true), 3000);
+      lastPointerActivityRef.current = Date.now();
+      fullscreenPointerGraceRef.current = enteringFullscreen ? Date.now() + 750 : 0;
+      lastMousePos.current = { x: -1, y: -1 };
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
@@ -499,17 +518,17 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
   }, [segments, settings, onProgress, executeSkip]);
 
   const isUiHidden = isFullscreen && isIdle;
+  const isCursorHidden = isUiHidden && !showOverlay;
 
   return (
     <div 
       ref={wrapperRef}
-      className={`w-full h-full relative overflow-hidden bg-black ${isFullscreen ? '' : 'rounded-2xl shadow-2xl border border-zinc-800'}`}
+      className={`w-full h-full relative overflow-hidden bg-black ${isFullscreen ? '' : 'rounded-2xl shadow-2xl border border-zinc-800'} ${isCursorHidden ? 'cursor-none' : ''}`}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => setIsIdle(true)}
     >
       <div 
         ref={containerRef} 
-        className={`w-full h-full transition-opacity duration-300 ${showOverlay ? 'opacity-20' : 'opacity-100'}`} 
+        className={`w-full h-full transition-opacity duration-300 ${showOverlay ? 'opacity-20' : 'opacity-100'} ${isCursorHidden ? 'pointer-events-none' : ''}`}
       />
       
       {/* Custom Related Videos Overlay */}
@@ -592,16 +611,19 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
           It catches the very first mouse movement to wake up the UI, then vanishes instantly so you can click the video freely. */}
       {isUiHidden && (
         <div 
-          className="absolute inset-0 z-[100]" 
+          className={`absolute inset-0 z-[100] ${isCursorHidden ? 'cursor-none' : ''}`}
           onMouseMove={handleMouseMove} 
-          onClick={handleMouseMove}
+          onClick={markPointerActive}
         />
       )}
 
       {/* Custom Fullscreen Button - Middle Right */}
       {!isIOS && (
         <button 
-          onClick={toggleFullscreen}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            toggleFullscreen();
+          }}
           className={`absolute top-1/2 right-4 -translate-y-1/2 z-[60] flex items-center justify-center w-12 h-12 bg-black/30 hover:bg-white/10 text-white/80 hover:text-white rounded-full backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-300 hover:scale-110 active:scale-95 ${isIdle || showOverlay ? 'opacity-0 pointer-events-none' : 'opacity-100 hover:opacity-100'}`}
         >
           {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
@@ -609,40 +631,42 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
       )}
 
       {/* Alerts Container (Bottom Left, safely above all YT controls) */}
-      <div className={`absolute bottom-24 sm:bottom-32 left-3 sm:left-4 z-[60] flex flex-col gap-2 sm:gap-3 items-start pointer-events-none transition-all duration-500 ${isUiHidden || showOverlay ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-        
-        {/* Toasts */}
+      <div className="absolute bottom-24 sm:bottom-32 left-3 sm:left-4 z-[60] flex flex-col gap-2 sm:gap-3 items-start pointer-events-none">
+
+        {/* Toasts stay visible while the fullscreen controls and cursor are idle. */}
         {toasts.map(toast => (
           <div 
             key={toast.id}
-            className="flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-black/30 text-white/95 text-xs sm:text-sm font-medium tracking-wide rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl border border-white/10 animate-in slide-in-from-left-4 fade-in duration-300 pointer-events-auto"
+            className="flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-black/30 text-white/95 text-xs sm:text-sm font-medium tracking-wide rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl border border-white/10 animate-in slide-in-from-left-4 fade-in duration-300"
           >
             <Info size={14} className="sm:w-4 sm:h-4 text-zinc-300" />
             {toast.message}
           </div>
         ))}
 
-        {/* Jump to Highlight Button */}
-        {highlightSegment && !hideHighlight && currentTime < highlightSegment.segment[0] - 5 && (
-          <button 
-            onClick={() => executeSkip({ category: 'Highlight', segment: [currentTime, highlightSegment.segment[0]] })}
-            className="group flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-5 sm:py-2.5 bg-black/30 hover:bg-white/10 text-white/95 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl border border-white/10 transition-all duration-300 pointer-events-auto active:scale-95 hover:scale-105 animate-in slide-in-from-left-4 fade-in"
-          >
-            <Star size={14} className="sm:w-4 sm:h-4 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
-            <span className="text-xs sm:text-sm font-semibold tracking-wide">Jump to Highlight</span>
-          </button>
-        )}
+        <div className={`flex flex-col gap-2 sm:gap-3 items-start transition-all duration-500 ${isUiHidden || showOverlay ? 'opacity-0 invisible' : 'opacity-100 visible'}`}>
+          {/* Jump to Highlight Button */}
+          {highlightSegment && !hideHighlight && currentTime < highlightSegment.segment[0] - 5 && (
+            <button
+              onClick={() => executeSkip({ category: 'Highlight', segment: [currentTime, highlightSegment.segment[0]] })}
+              className="group flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-5 sm:py-2.5 bg-black/30 hover:bg-white/10 text-white/95 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl border border-white/10 transition-all duration-300 pointer-events-auto active:scale-95 hover:scale-105 animate-in slide-in-from-left-4 fade-in"
+            >
+              <Star size={14} className="sm:w-4 sm:h-4 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
+              <span className="text-xs sm:text-sm font-semibold tracking-wide">Jump to Highlight</span>
+            </button>
+          )}
 
-        {/* Manual Skip Button */}
-        {manualSkip && (
-          <button 
-            onClick={() => executeSkip(manualSkip)}
-            className="group flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-5 sm:py-2.5 bg-black/30 hover:bg-white/10 text-white/95 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl border border-white/10 transition-all duration-300 pointer-events-auto active:scale-95 hover:scale-105 animate-in slide-in-from-left-4 fade-in"
-          >
-            <SkipForward size={14} className="sm:w-4 sm:h-4 text-brand-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
-            <span className="text-xs sm:text-sm font-semibold tracking-wide">Skip {manualSkip.category}</span>
-          </button>
-        )}
+          {/* Manual Skip Button */}
+          {manualSkip && (
+            <button
+              onClick={() => executeSkip(manualSkip)}
+              className="group flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-5 sm:py-2.5 bg-black/30 hover:bg-white/10 text-white/95 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl border border-white/10 transition-all duration-300 pointer-events-auto active:scale-95 hover:scale-105 animate-in slide-in-from-left-4 fade-in"
+            >
+              <SkipForward size={14} className="sm:w-4 sm:h-4 text-brand-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+              <span className="text-xs sm:text-sm font-semibold tracking-wide">Skip {manualSkip.category}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Roadmap Bar - Interactive */}
