@@ -18,9 +18,10 @@ export const INVIDIOUS_INSTANCES = [
   'https://invidious.esmailelbob.xyz',
   'https://invidious.projectsegfau.lt',
   'https://yt.chocolatemoo53.com',
+  'https://inv.zoomerville.com',
 ];
 
-export const PREFERRED_SEARCH_INSTANCE = 'https://yt.chocolatemoo53.com';
+export const PREFERRED_SEARCH_INSTANCE = 'https://inv.zoomerville.com';
 
 export const INVIDIOUS_CAPABILITIES = Object.freeze({
   SEARCH: 'search',
