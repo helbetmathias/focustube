@@ -198,3 +198,18 @@ export async function fetchYouTubeSearchResults(query, {
     clearTimeout(timeout);
   }
 }
+
+export async function fetchYouTubeSearchResultsWithRetry(query, {
+  attempts = 2,
+  ...options
+} = {}) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fetchYouTubeSearchResults(query, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('YouTube search fallback failed');
+}

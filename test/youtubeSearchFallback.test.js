@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   extractYouTubeSearchResults,
   fetchYouTubeSearchResults,
+  fetchYouTubeSearchResultsWithRetry,
   parseYouTubeInitialData,
   raceSearchSources,
 } from '../server/youtubeSearchFallback.js';
@@ -95,4 +96,21 @@ test('uses the staggered fallback without waiting for a slow primary source', as
 
   assert.equal(result.provider, 'youtube-web');
   assert.deepEqual(result.data, ['fallback']);
+});
+
+test('retries the YouTube fallback once after a transient failure', async () => {
+  let calls = 0;
+  const results = await fetchYouTubeSearchResultsWithRetry('example query', {
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('Temporary upstream failure');
+      return {
+        ok: true,
+        text: async () => `<script>var ytInitialData = ${JSON.stringify(initialData)};</script>`,
+      };
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(results[0].videoId, 'abcdefghijk');
 });

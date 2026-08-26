@@ -1,7 +1,7 @@
 import { INVIDIOUS_CAPABILITIES } from '../shared/invidious.js';
 import { createProviderRouter } from '../server/providerRouter.js';
 import {
-  fetchYouTubeSearchResults,
+  fetchYouTubeSearchResultsWithRetry,
   raceSearchSources,
 } from '../server/youtubeSearchFallback.js';
 
@@ -105,7 +105,9 @@ export default async function handler(request, response) {
           () => router.request(parsed.capability, parsed.params),
           async () => ({
             provider: 'youtube-web',
-            data: await fetchYouTubeSearchResults(parsed.params.query),
+            data: await fetchYouTubeSearchResultsWithRetry(parsed.params.query, {
+              timeoutMs: 4500,
+            }),
           }),
         )
       : await router.request(parsed.capability, parsed.params);
