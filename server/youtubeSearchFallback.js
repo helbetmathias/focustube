@@ -1,5 +1,44 @@
 const YOUTUBE_SEARCH_URL = 'https://www.youtube.com/results';
 
+export function raceSearchSources(primaryRequest, fallbackRequest, {
+  fallbackDelayMs = 500,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const errors = [];
+    let settled = false;
+    let fallbackStarted = false;
+    let fallbackTimer;
+
+    const succeed = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallbackTimer);
+      resolve(result);
+    };
+
+    const fail = error => {
+      errors.push(error);
+      if (errors.length === 2 && !settled) {
+        settled = true;
+        reject(new AggregateError(errors, 'No search source was available'));
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackStarted || settled) return;
+      fallbackStarted = true;
+      Promise.resolve().then(fallbackRequest).then(succeed, fail);
+    };
+
+    fallbackTimer = setTimeout(startFallback, fallbackDelayMs);
+    Promise.resolve().then(primaryRequest).then(succeed, error => {
+      clearTimeout(fallbackTimer);
+      fail(error);
+      startFallback();
+    });
+  });
+}
+
 function rendererText(value) {
   if (!value) return '';
   if (typeof value.simpleText === 'string') return value.simpleText;

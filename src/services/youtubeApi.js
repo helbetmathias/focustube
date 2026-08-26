@@ -270,16 +270,16 @@ function normalizeSearchResults(data) {
 }
 
 export async function fetchSearchResults(query, singlePage = false) {
-  try {
+  if (ROUTER_API_URL) {
     const data = await fetchFromRouter(CAPABILITIES.SEARCH, {
       q: query,
       pages: singlePage ? '1' : '2'
-    });
+    }, 12000);
     return normalizeSearchResults(data);
-  } catch {
-    // The original browser-side provider pool remains the offline fallback.
   }
 
+  // Development setups without the server router can still try providers
+  // directly, although most public instances currently block browser CORS.
   const instances = getInstances(CAPABILITIES.SEARCH);
   const encodedQuery = encodeURIComponent(query);
 

@@ -1,6 +1,9 @@
 import { INVIDIOUS_CAPABILITIES } from '../shared/invidious.js';
 import { createProviderRouter } from '../server/providerRouter.js';
-import { fetchYouTubeSearchResults } from '../server/youtubeSearchFallback.js';
+import {
+  fetchYouTubeSearchResults,
+  raceSearchSources,
+} from '../server/youtubeSearchFallback.js';
 
 const router = createProviderRouter();
 const rateWindows = new Map();
@@ -97,17 +100,17 @@ export default async function handler(request, response) {
   }
 
   try {
-    const result = await router.request(parsed.capability, parsed.params);
+    const result = parsed.capability === INVIDIOUS_CAPABILITIES.SEARCH
+      ? await raceSearchSources(
+          () => router.request(parsed.capability, parsed.params),
+          async () => ({
+            provider: 'youtube-web',
+            data: await fetchYouTubeSearchResults(parsed.params.query),
+          }),
+        )
+      : await router.request(parsed.capability, parsed.params);
     return response.status(200).json({ ok: true, provider: result.provider, data: result.data });
   } catch {
-    if (parsed.capability === INVIDIOUS_CAPABILITIES.SEARCH) {
-      try {
-        const data = await fetchYouTubeSearchResults(parsed.params.query);
-        return response.status(200).json({ ok: true, provider: 'youtube-web', data });
-      } catch {
-        // Return the normal provider error when both routes are unavailable.
-      }
-    }
     return response.status(502).json({ ok: false, error: 'No healthy provider available' });
   }
 }

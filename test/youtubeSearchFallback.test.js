@@ -4,6 +4,7 @@ import {
   extractYouTubeSearchResults,
   fetchYouTubeSearchResults,
   parseYouTubeInitialData,
+  raceSearchSources,
 } from '../server/youtubeSearchFallback.js';
 
 const initialData = {
@@ -64,4 +65,34 @@ test('fetches YouTube web search results through the server fallback', async () 
 
   assert.match(requestedUrl, /search_query=example\+query/);
   assert.equal(results[0].videoId, 'abcdefghijk');
+});
+
+test('keeps a fast primary search source preferred', async () => {
+  let fallbackCalls = 0;
+  const result = await raceSearchSources(
+    async () => ({ provider: 'invidious', data: ['primary'] }),
+    async () => {
+      fallbackCalls += 1;
+      return { provider: 'youtube-web', data: ['fallback'] };
+    },
+    { fallbackDelayMs: 10 },
+  );
+
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(result.provider, 'invidious');
+  assert.equal(fallbackCalls, 0);
+});
+
+test('uses the staggered fallback without waiting for a slow primary source', async () => {
+  const result = await raceSearchSources(
+    () => new Promise(resolve => setTimeout(
+      () => resolve({ provider: 'invidious', data: ['primary'] }),
+      50,
+    )),
+    async () => ({ provider: 'youtube-web', data: ['fallback'] }),
+    { fallbackDelayMs: 5 },
+  );
+
+  assert.equal(result.provider, 'youtube-web');
+  assert.deepEqual(result.data, ['fallback']);
 });
