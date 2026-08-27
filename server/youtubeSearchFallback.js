@@ -1,4 +1,6 @@
 const YOUTUBE_SEARCH_URL = 'https://www.youtube.com/results';
+const YOUTUBE_JSON_SEARCH_URL = 'https://www.youtube.com/youtubei/v1/search?prettyPrint=false';
+const YOUTUBE_WEB_CLIENT_VERSION = '2.20260825.01.00';
 
 export function raceSearchSources(primaryRequest, fallbackRequest, {
   fallbackDelayMs = 500,
@@ -199,14 +201,57 @@ export async function fetchYouTubeSearchResults(query, {
   }
 }
 
+export async function fetchYouTubeJsonSearchResults(query, {
+  fetchImpl = fetch,
+  timeoutMs = 4500,
+} = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(YOUTUBE_JSON_SEARCH_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': YOUTUBE_WEB_CLIENT_VERSION,
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: YOUTUBE_WEB_CLIENT_VERSION,
+            hl: 'en',
+            gl: 'US',
+          },
+        },
+        query,
+      }),
+    });
+    if (!response.ok) throw new Error(`YouTube JSON search returned HTTP ${response.status}`);
+    const results = extractYouTubeSearchResults(await response.json());
+    if (results.length === 0) throw new Error('YouTube JSON search returned no results');
+    return results;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function fetchYouTubeSearchResultsWithRetry(query, {
   attempts = 2,
-  ...options
+  fetchImpl = fetch,
+  timeoutMs = 4500,
 } = {}) {
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      return await fetchYouTubeSearchResults(query, options);
+      return await raceSearchSources(
+        () => fetchYouTubeJsonSearchResults(query, { fetchImpl, timeoutMs }),
+        () => fetchYouTubeSearchResults(query, { fetchImpl, timeoutMs }),
+        { fallbackDelayMs: 600 },
+      );
     } catch (error) {
       lastError = error;
     }

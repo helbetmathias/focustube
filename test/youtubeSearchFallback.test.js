@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   extractYouTubeSearchResults,
+  fetchYouTubeJsonSearchResults,
   fetchYouTubeSearchResults,
   fetchYouTubeSearchResultsWithRetry,
   parseYouTubeInitialData,
@@ -68,6 +69,24 @@ test('fetches YouTube web search results through the server fallback', async () 
   assert.equal(results[0].videoId, 'abcdefghijk');
 });
 
+test('fetches search results from the YouTube JSON web client', async () => {
+  let requestOptions;
+  const results = await fetchYouTubeJsonSearchResults('example query', {
+    fetchImpl: async (_url, options) => {
+      requestOptions = options;
+      return {
+        ok: true,
+        json: async () => initialData,
+      };
+    },
+  });
+
+  const body = JSON.parse(requestOptions.body);
+  assert.equal(requestOptions.method, 'POST');
+  assert.equal(body.query, 'example query');
+  assert.equal(results[0].videoId, 'abcdefghijk');
+});
+
 test('keeps a fast primary search source preferred', async () => {
   let fallbackCalls = 0;
   const result = await raceSearchSources(
@@ -101,9 +120,9 @@ test('uses the staggered fallback without waiting for a slow primary source', as
 test('retries the YouTube fallback once after a transient failure', async () => {
   let calls = 0;
   const results = await fetchYouTubeSearchResultsWithRetry('example query', {
-    fetchImpl: async () => {
+    fetchImpl: async (_url, options) => {
       calls += 1;
-      if (calls === 1) throw new Error('Temporary upstream failure');
+      if (options?.method === 'POST') throw new Error('Temporary JSON failure');
       return {
         ok: true,
         text: async () => `<script>var ytInitialData = ${JSON.stringify(initialData)};</script>`,
