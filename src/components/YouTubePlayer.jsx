@@ -201,6 +201,33 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     }
   }, [isActive]);
 
+  // Mirror YouTube's familiar Space/K play-pause shortcuts while focus is on
+  // FocusTube UI. The embedded player keeps handling the same keys itself when
+  // its cross-origin iframe has focus.
+  useEffect(() => {
+    const handlePlaybackShortcut = (event) => {
+      const isPlaybackKey = event.code === 'Space' || event.key?.toLowerCase() === 'k';
+      if (!isPlaybackKey || event.repeat || event.altKey || event.ctrlKey || event.metaKey || !isActive) return;
+
+      const target = event.target;
+      if (target instanceof Element && target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
+
+      const player = playerRef.current;
+      if (!player?.getPlayerState || !window.YT?.PlayerState) return;
+
+      event.preventDefault();
+      const playerState = player.getPlayerState();
+      if (playerState === window.YT.PlayerState.PLAYING) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+    };
+
+    document.addEventListener('keydown', handlePlaybackShortcut);
+    return () => document.removeEventListener('keydown', handlePlaybackShortcut);
+  }, [isActive]);
+
   const toggleFullscreen = () => {
     if (!document.fullscreenElement && wrapperRef.current) {
       wrapperRef.current.requestFullscreen().catch(err => {
