@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, Play, Music, MessageCircle, FastForward, Bell, Clock, Star, Sparkles, LayoutGrid } from 'lucide-react';
+import { Shield, Play, Music, MessageCircle, FastForward, Bell, Clock, Star, Sparkles, LayoutGrid, History } from 'lucide-react';
 import { getTimeSaved } from '../services/storage';
 
 const CATEGORIES = [
@@ -65,6 +65,11 @@ const getInitialAmbient = () => {
   return ambient !== null ? ambient === 'true' : false; // Default off per user request
 };
 
+const getInitialContinueWatching = () => {
+  const stored = localStorage.getItem('puretube_continue_watching');
+  return stored !== null ? stored === 'true' : true;
+};
+
 const getInitialRecomm = () => {
   const r = localStorage.getItem('puretube_recomm');
   return r ? r : 'all';
@@ -74,6 +79,7 @@ export default function SettingsView({ isActive }) {
   const [settings, setSettings] = useState(getInitialSettings);
   const [notifications, setNotifications] = useState(getInitialNotifications);
   const [ambient, setAmbient] = useState(getInitialAmbient);
+  const [continueWatching, setContinueWatching] = useState(getInitialContinueWatching);
   const [recomm, setRecomm] = useState(getInitialRecomm);
   const [timeSaved, setTimeSaved] = useState(0);
 
@@ -105,6 +111,13 @@ export default function SettingsView({ isActive }) {
     window.dispatchEvent(new Event('puretube_settings_updated'));
   };
 
+  const toggleContinueWatching = () => {
+    const newVal = !continueWatching;
+    setContinueWatching(newVal);
+    localStorage.setItem('puretube_continue_watching', String(newVal));
+    window.dispatchEvent(new Event('puretube_settings_updated'));
+  };
+
   const updateRecomm = (val) => {
     setRecomm(val);
     localStorage.setItem('puretube_recomm', val);
@@ -112,7 +125,7 @@ export default function SettingsView({ isActive }) {
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-4 animate-page-fade max-w-6xl mx-auto w-full pb-4">
+    <div className="flex-1 min-h-0 flex flex-col gap-3 animate-page-fade max-w-6xl mx-auto w-full">
       <div className="flex-none flex justify-between items-end border-b border-zinc-800 pb-3">
         <div>
           <h2 className="text-2xl font-semibold mb-1 text-zinc-100 tracking-tight">Settings</h2>
@@ -120,36 +133,36 @@ export default function SettingsView({ isActive }) {
         </div>
       </div>
       
-      <div className="flex-1 min-h-0 overflow-y-auto pr-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-col justify-between gap-4 pb-2">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-2 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-col justify-between gap-3">
         
         {/* Stats Section */}
         <section>
-          <div className="glass rounded-xl p-3 lg:p-4 flex items-center gap-5 transition-all">
-            <div className="w-14 h-14 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-500">
-              <Clock size={28} />
+          <div className="glass rounded-xl p-2.5 flex items-center gap-4 transition-all">
+            <div className="w-10 h-10 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-500">
+              <Clock size={20} />
             </div>
             <div>
-              <p className="text-zinc-400 text-sm font-medium">Time Saved by SponsorBlock</p>
-              <p className="text-2xl lg:text-3xl font-bold text-zinc-100 mt-1">{formatTimeSaved(timeSaved)}</p>
+              <p className="text-zinc-400 text-xs lg:text-sm font-medium">Time Saved by SponsorBlock</p>
+              <p className="text-xl lg:text-2xl leading-tight font-bold text-zinc-100">{formatTimeSaved(timeSaved)}</p>
             </div>
           </div>
         </section>
 
         {/* Global Settings */}
         <section>
-          <h3 className="text-lg font-semibold mb-3 text-zinc-300">Global</h3>
+          <h3 className="text-lg font-semibold mb-1.5 text-zinc-300">Global</h3>
           <div className="flex flex-col gap-2">
-            <div 
+            <div
               onClick={toggleNotifications}
-              className="p-3 lg:p-4 glass rounded-xl cursor-pointer hover:bg-zinc-800/50 transition-colors flex items-center justify-between"
+              className="p-2.5 glass rounded-xl cursor-pointer hover:bg-zinc-800/50 transition-colors flex items-center justify-between"
             >
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-lg ${notifications ? 'bg-brand-500/20 text-brand-500' : 'bg-zinc-800 text-zinc-500'}`}>
-                  <Bell size={24} />
+                  <Bell size={20} />
                 </div>
                 <div>
-                  <h4 className="font-medium text-zinc-100">Toast Notifications</h4>
-                  <p className="text-sm text-zinc-500 mt-1">Show a small popup when a segment is automatically skipped.</p>
+                  <h4 className="text-sm lg:text-base font-medium text-zinc-100">Toast Notifications</h4>
+                  <p className="text-xs lg:text-sm text-zinc-500 mt-0.5">Show a small popup when a segment is automatically skipped.</p>
                 </div>
               </div>
               <div className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 mt-1 ${notifications ? 'bg-brand-500' : 'bg-zinc-700'}`}>
@@ -159,19 +172,37 @@ export default function SettingsView({ isActive }) {
 
             <div 
               onClick={toggleAmbient}
-              className="p-3 lg:p-4 glass rounded-xl cursor-pointer hover:bg-zinc-800/50 transition-colors flex items-center justify-between"
+              className="p-2.5 glass rounded-xl cursor-pointer hover:bg-zinc-800/50 transition-colors flex items-center justify-between"
             >
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-lg ${ambient ? 'bg-brand-500/20 text-brand-500' : 'bg-zinc-800 text-zinc-500'}`}>
-                  <Sparkles size={24} />
+                  <Sparkles size={20} />
                 </div>
                 <div>
-                  <h4 className="font-medium text-zinc-100">Ambient Theater Mode</h4>
-                  <p className="text-sm text-zinc-500 mt-1">Cast a glowing aura around the player that matches the video's colors.</p>
+                  <h4 className="text-sm lg:text-base font-medium text-zinc-100">Ambient Theater Mode</h4>
+                  <p className="text-xs lg:text-sm text-zinc-500 mt-0.5">Cast a glowing aura around the player that matches the video's colors.</p>
                 </div>
               </div>
               <div className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 mt-1 ${ambient ? 'bg-brand-500' : 'bg-zinc-700'}`}>
                 <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${ambient ? 'translate-x-6' : ''}`} />
+              </div>
+            </div>
+
+            <div
+              onClick={toggleContinueWatching}
+              className="p-2.5 glass rounded-xl cursor-pointer hover:bg-zinc-800/50 transition-colors flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${continueWatching ? 'bg-brand-500/20 text-brand-500' : 'bg-zinc-800 text-zinc-500'}`}>
+                  <History size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm lg:text-base font-medium text-zinc-100">Home Continue Watching</h4>
+                  <p className="text-xs lg:text-sm text-zinc-500 mt-0.5">Show unfinished videos above your home recommendations.</p>
+                </div>
+              </div>
+              <div className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 mt-1 ${continueWatching ? 'bg-brand-500' : 'bg-zinc-700'}`}>
+                <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${continueWatching ? 'translate-x-6' : ''}`} />
               </div>
             </div>
           </div>
@@ -227,7 +258,7 @@ export default function SettingsView({ isActive }) {
           </div>
         </section>
 
-        <div className="text-center text-zinc-500 text-sm mt-4">
+        <div className="text-center text-zinc-500 text-sm mt-1">
           Made by <a href="https://discord.com/users/741942954800709703" target="_blank" rel="noreferrer" className="text-zinc-300 hover:text-brand-400 transition-colors font-medium">Mathy</a>
         </div>
       </div>

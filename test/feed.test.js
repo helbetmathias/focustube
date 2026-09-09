@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getHomeHistoryContext, getTargetFeedSize } from '../src/utils/feed.js';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getContinueWatchingItems, getHomeHistoryContext, getTargetFeedSize } from '../src/utils/feed.js';
 
 const videos = (prefix, count) => Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }));
 
@@ -37,6 +37,21 @@ test('home cache signature changes for a new creator or related-video seed', () 
 
   assert.notEqual(original.signature, newVideo.signature);
   assert.notEqual(original.signature, newCreator.signature);
+});
+
+test('continue watching keeps the four latest unique unfinished videos', () => {
+  const result = getContinueWatchingItems([
+    { id: 'older', progress: 40, duration: 100, timestamp: 1 },
+    { id: 'finished', progress: 96, duration: 100, timestamp: 8 },
+    { id: 'missing-duration', progress: 20, duration: 0, timestamp: 7 },
+    { id: 'newest', progress: 10, duration: 100, timestamp: 6 },
+    { id: 'second', progress: 30, duration: 100, timestamp: 5 },
+    { id: 'newest', progress: 5, duration: 100, timestamp: 4 },
+    { id: 'third', progress: 50, duration: 100, timestamp: 3 },
+    { id: 'fourth', progress: 70, duration: 100, timestamp: 2 },
+  ]);
+
+  assert.deepEqual(result.map(item => item.id), ['newest', 'second', 'third', 'fourth']);
 });
 
 test('creator results are interleaved and trimmed to a complete row', () => {

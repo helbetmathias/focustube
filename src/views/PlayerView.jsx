@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGrid } from 'lucide-react';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getContinueWatchingItems, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
 import { getInitialSearchResultCount, prepareSearchResults } from '../utils/search';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
 import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
@@ -101,6 +101,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [ambient, setAmbient] = useState(false);
   const [recommMode, setRecommMode] = useState(() => localStorage.getItem('puretube_recomm') || 'all');
+  const [continueWatchingEnabled, setContinueWatchingEnabled] = useState(() => localStorage.getItem('puretube_continue_watching') !== 'false');
+  const [continueWatching, setContinueWatching] = useState([]);
   const [searchResults, setSearchResults] = useState(null);
   const [showAllSearchResults, setShowAllSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -139,11 +141,32 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       setAmbient(a !== null ? a === 'true' : false);
       const r = localStorage.getItem('puretube_recomm');
       setRecommMode(r ? r : 'all');
+      setContinueWatchingEnabled(localStorage.getItem('puretube_continue_watching') !== 'false');
     };
     readSettings();
     window.addEventListener('puretube_settings_updated', readSettings);
     return () => window.removeEventListener('puretube_settings_updated', readSettings);
   }, []);
+
+  const loadContinueWatching = useCallback(async () => {
+    if (!continueWatchingEnabled) {
+      setContinueWatching([]);
+      return;
+    }
+
+    try {
+      const history = await getHistory();
+      setContinueWatching(getContinueWatchingItems(history));
+    } catch {
+      setContinueWatching([]);
+    }
+  }, [continueWatchingEnabled]);
+
+  useEffect(() => {
+    loadContinueWatching();
+    window.addEventListener('puretube_history_updated', loadContinueWatching);
+    return () => window.removeEventListener('puretube_history_updated', loadContinueWatching);
+  }, [loadContinueWatching]);
 
   // Load Home Feed
   const loadHomeFeed = useCallback(async (forceRefresh = false) => {
@@ -636,73 +659,121 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                   </>
                 )}
               </div>
-            ) : isFeedLoading ? (
-              <div key="loading-spinner" className="w-full flex items-center justify-center min-h-[400px]">
-                <Loader2 size={32} className="text-zinc-500 animate-spin" />
-              </div>
-            ) : recommMode === 'off' ? (
-              <div 
-                key="home-feed-disabled-state"
-                className="w-full flex-1 flex flex-col items-center justify-center animate-fade-in"
-                style={{ minHeight: '40vh' }}
-              >
-                <div className="w-16 h-16 bg-zinc-900/50 rounded-full flex items-center justify-center mb-4 text-zinc-600">
-                  <LayoutGrid size={28} />
-                </div>
-                <h3 className="text-xl font-medium text-zinc-400 mb-2">Recommendations Disabled</h3>
-                <p className="text-zinc-600 text-sm max-w-sm text-center">Your home feed is hidden. Use the search bar above to find a video or paste a URL to start watching.</p>
-              </div>
-            ) : homeFeed && homeFeed.length > 0 ? (
-              <div key="feed-container" id="home-feed-container" className="w-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-10 pr-2">
-                <h3 className="text-xl font-bold text-zinc-100 mb-6 px-2">Recommended for you</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
-                  {homeFeed.map((vid, idx) => (
-                    <button
-                      key={`home-${vid.id}-${idx}`}
-                      onClick={() => loadMedia(vid.id)}
-                      className={`group text-left flex flex-col focus:outline-none ${!disableFeedAnims ? 'animate-card-pop' : ''}`}
-                      style={{ animationDelay: `${idx * 40}ms` }}
-                    >
-                      <div className="relative w-full aspect-video rounded-xl overflow-hidden mb-3 bg-zinc-800">
-                        <ThumbnailImage 
-                          src={`https://img.youtube.com/vi/${vid.id}/maxresdefault.jpg`}
-                          videoId={vid.id}
-                          alt={vid.title}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
-                          <Play size={40} className="text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 drop-shadow-lg" fill="currentColor" />
-                        </div>
-                        {vid.lengthSeconds ? (
-                          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
-                            {formatDuration(vid.lengthSeconds)}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="flex gap-3 px-1">
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-zinc-100 text-sm lg:text-base line-clamp-2 leading-snug mb-1 group-hover:text-brand-500 transition-colors">{vid.title}</h4>
-                          <p className="text-xs lg:text-sm text-zinc-400 line-clamp-1">{vid.author}</p>
-                          {vid.viewCount && (
-                            <p className="text-xs text-zinc-500 mt-0.5">{formatViews(vid.viewCount)} views</p>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
             ) : (
-              <div 
-                key="ready-state"
-                className="w-full mx-auto min-h-[400px] lg:min-h-0 lg:aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                style={{ maxWidth: videoMaxWidth, maxHeight: playerMaxHeight }}
-              >
-                <div className="w-20 h-20 bg-zinc-800/80 rounded-full flex items-center justify-center mb-6 shadow-inner ring-1 ring-white/5">
-                  <Play size={32} className="text-zinc-400 ml-1" fill="currentColor" />
-                </div>
-                <h2 className="text-2xl font-bold text-zinc-100 tracking-tight">Ready to watch</h2>
-                <p className="text-zinc-400 mt-3 max-w-md text-center leading-relaxed">Paste a YouTube video or playlist link above for an ad-free, sponsor-skipped, and private playback experience.</p>
+              <div key="home-content" id="home-feed-container" className="w-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-10 pr-2">
+                {continueWatchingEnabled && continueWatching.length > 0 && (
+                  <section className="mb-8">
+                    <h3 className="text-xl font-bold text-zinc-100 mb-6 px-2">Continue Watching</h3>
+                    <div className="flex sm:flex-wrap sm:justify-center gap-4 lg:gap-6 overflow-x-auto sm:overflow-visible snap-x snap-mandatory sm:snap-none pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {continueWatching.map((item, idx) => {
+                        const progressPercent = Math.min(100, Math.max(0, (item.progress / item.duration) * 100));
+
+                        return (
+                          <button
+                            key={`continue-${item.id}`}
+                            onClick={() => loadMedia(item.id)}
+                            className={`group text-left flex-none w-[82%] sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-1rem)] xl:w-[calc(25%-1.125rem)] flex flex-col focus:outline-none snap-start ${!disableFeedAnims ? 'animate-card-pop' : ''}`}
+                            style={{ animationDelay: `${idx * 40}ms` }}
+                          >
+                            <div className="relative w-full aspect-video rounded-xl overflow-hidden mb-3 bg-zinc-800">
+                              <ThumbnailImage
+                                src={`https://img.youtube.com/vi/${item.id}/maxresdefault.jpg`}
+                                videoId={item.id}
+                                alt={item.title || 'Continue watching video'}
+                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                              />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
+                                <Play size={40} className="text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 drop-shadow-lg" fill="currentColor" />
+                              </div>
+                              <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
+                                {formatDuration(Math.floor(item.duration))}
+                              </div>
+                              <div className="absolute bottom-0 inset-x-0 h-1 bg-white/25">
+                                <div className="h-full bg-brand-500" style={{ width: `${progressPercent}%` }} />
+                              </div>
+                            </div>
+                            <div className="px-1 min-w-0">
+                              <h4 className="font-medium text-zinc-100 text-sm lg:text-base line-clamp-2 leading-snug mb-1 group-hover:text-brand-500 transition-colors">
+                                {item.title || `Video ID: ${item.id}`}
+                              </h4>
+                              {item.author && <p className="text-xs lg:text-sm text-zinc-400 line-clamp-1">{item.author}</p>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {isFeedLoading ? (
+                  <div key="loading-spinner" className="w-full flex items-center justify-center min-h-[400px]">
+                    <Loader2 size={32} className="text-zinc-500 animate-spin" />
+                  </div>
+                ) : recommMode === 'off' ? (
+                  <div
+                    key="home-feed-disabled-state"
+                    className="w-full flex-1 flex flex-col items-center justify-center animate-fade-in"
+                    style={{ minHeight: '40vh' }}
+                  >
+                    <div className="w-16 h-16 bg-zinc-900/50 rounded-full flex items-center justify-center mb-4 text-zinc-600">
+                      <LayoutGrid size={28} />
+                    </div>
+                    <h3 className="text-xl font-medium text-zinc-400 mb-2">Recommendations Disabled</h3>
+                    <p className="text-zinc-600 text-sm max-w-sm text-center">Your home feed is hidden. Use the search bar above to find a video or paste a URL to start watching.</p>
+                  </div>
+                ) : homeFeed && homeFeed.length > 0 ? (
+                  <section>
+                    <h3 className="text-xl font-bold text-zinc-100 mb-6 px-2">Recommended for you</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
+                      {homeFeed.map((vid, idx) => (
+                        <button
+                          key={`home-${vid.id}-${idx}`}
+                          onClick={() => loadMedia(vid.id)}
+                          className={`group text-left flex flex-col focus:outline-none ${!disableFeedAnims ? 'animate-card-pop' : ''}`}
+                          style={{ animationDelay: `${idx * 40}ms` }}
+                        >
+                          <div className="relative w-full aspect-video rounded-xl overflow-hidden mb-3 bg-zinc-800">
+                            <ThumbnailImage
+                              src={`https://img.youtube.com/vi/${vid.id}/maxresdefault.jpg`}
+                              videoId={vid.id}
+                              alt={vid.title}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
+                              <Play size={40} className="text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 drop-shadow-lg" fill="currentColor" />
+                            </div>
+                            {vid.lengthSeconds ? (
+                              <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
+                                {formatDuration(vid.lengthSeconds)}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex gap-3 px-1">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium text-zinc-100 text-sm lg:text-base line-clamp-2 leading-snug mb-1 group-hover:text-brand-500 transition-colors">{vid.title}</h4>
+                              <p className="text-xs lg:text-sm text-zinc-400 line-clamp-1">{vid.author}</p>
+                              {vid.viewCount && (
+                                <p className="text-xs text-zinc-500 mt-0.5">{formatViews(vid.viewCount)} views</p>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ) : (
+                  <div
+                    key="ready-state"
+                    className="w-full mx-auto min-h-[400px] lg:min-h-0 lg:aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
+                    style={{ maxWidth: videoMaxWidth, maxHeight: playerMaxHeight }}
+                  >
+                    <div className="w-20 h-20 bg-zinc-800/80 rounded-full flex items-center justify-center mb-6 shadow-inner ring-1 ring-white/5">
+                      <Play size={32} className="text-zinc-400 ml-1" fill="currentColor" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-zinc-100 tracking-tight">Ready to watch</h2>
+                    <p className="text-zinc-400 mt-3 max-w-md text-center leading-relaxed">Paste a YouTube video or playlist link above for an ad-free, sponsor-skipped, and private playback experience.</p>
+                  </div>
+                )}
               </div>
             )}
           </>

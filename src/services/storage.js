@@ -1,5 +1,11 @@
 import { get, set } from 'idb-keyval';
 
+const notifyHistoryUpdated = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('puretube_history_updated'));
+  }
+};
+
 // History Storage (IndexedDB)
 // Unlimited capacity, async
 export const getHistory = async () => {
@@ -15,6 +21,7 @@ export const getHistory = async () => {
 export const saveHistory = async (historyArray) => {
   try {
     await set('puretube_history', historyArray);
+    notifyHistoryUpdated();
   } catch (error) {
     console.error('Failed to save history to IndexedDB:', error);
   }
@@ -23,6 +30,7 @@ export const saveHistory = async (historyArray) => {
 export const clearHistory = async () => {
   try {
     await set('puretube_history', []);
+    notifyHistoryUpdated();
   } catch (error) {
     console.error('Failed to clear history in IndexedDB:', error);
   }

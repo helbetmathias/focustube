@@ -1,5 +1,22 @@
 const DESKTOP_COLUMNS = 4;
 
+export function getContinueWatchingItems(history, limit = DESKTOP_COLUMNS) {
+  if (!Array.isArray(history) || limit <= 0) return [];
+
+  const seenIds = new Set();
+  return [...history]
+    .sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0))
+    .filter(item => {
+      const progress = Number(item?.progress) || 0;
+      const duration = Number(item?.duration) || 0;
+      if (!item?.id || seenIds.has(item.id) || progress <= 0 || duration <= 0) return false;
+
+      seenIds.add(item.id);
+      return progress / duration < 0.95;
+    })
+    .slice(0, limit);
+}
+
 export function getHomeHistoryContext(history, creatorLimit = 4) {
   const sortedHistory = Array.isArray(history)
     ? [...history].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0))
