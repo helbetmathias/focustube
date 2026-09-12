@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGrid } from 'lucide-react';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getContinueWatchingItems, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getCompactTargetFeedSize, getContinueWatchingItems, getHomeFeedPoolSize, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
 import { getInitialSearchResultCount, prepareSearchResults } from '../utils/search';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
 import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
@@ -49,6 +49,12 @@ const ThumbnailImage = ({ src, videoId, alt, className }) => {
     />
   );
 };
+
+const COMPACT_LAPTOP_QUERY = '(min-width: 1024px) and (max-width: 1279px)';
+
+const getCompactLaptopMatch = () => (
+  typeof window !== 'undefined' && window.matchMedia(COMPACT_LAPTOP_QUERY).matches
+);
 
 const SearchResultCard = ({ vid, onSelect, formatDuration, className = '' }) => {
   const isPlaylist = vid.type === 'playlist';
@@ -111,9 +117,19 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [lastSearchTerm, setLastSearchTerm] = useState('');
   const [disableFeedAnims, setDisableFeedAnims] = useState(false);
   const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const [homeCreatorCount, setHomeCreatorCount] = useState(0);
+  const [isCompactLaptop, setIsCompactLaptop] = useState(getCompactLaptopMatch);
   const currentVideoIdRef = useRef(null);
   const homeFeedRequestIdRef = useRef(0);
   const historyWriteQueueRef = useRef(Promise.resolve());
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(COMPACT_LAPTOP_QUERY);
+    const updateLayout = (event) => setIsCompactLaptop(event.matches);
+    setIsCompactLaptop(mediaQuery.matches);
+    mediaQuery.addEventListener('change', updateLayout);
+    return () => mediaQuery.removeEventListener('change', updateLayout);
+  }, []);
 
   const formatDuration = (seconds) => {
     if (!seconds) return '';
@@ -181,11 +197,13 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     try {
       const history = await getHistory();
       if (!history || history.length === 0) {
+        setHomeCreatorCount(0);
         setIsFeedLoading(false);
         return;
       }
 
       const { creators, newestSeed, signature } = getHomeHistoryContext(history);
+      setHomeCreatorCount(creators.length);
       if (creators.length === 0) {
         setIsFeedLoading(false);
         return;
@@ -226,11 +244,11 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
 
       if (!forceRefresh) {
         const cache = await getHomeBlendCache();
-        const validFeedSizes = new Set([8, 12, 16, 20]);
+        const poolTarget = getHomeFeedPoolSize(creators.length);
         if (
           cache?.historySignature === signature
           && Array.isArray(cache.feed)
-          && validFeedSizes.has(cache.feed.length)
+          && cache.feed.length >= poolTarget
         ) {
           setHomeFeed(cache.feed);
           setIsFeedLoading(false);
@@ -239,9 +257,9 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         }
       }
 
-      // Grow by complete four-card desktop rows as FocusTube learns more creators.
+      // Keep enough cards ready for both four-column desktops and three-column laptops.
       const numAuthors = creators.length;
-      const targetFeedSize = getTargetFeedSize(numAuthors);
+      const targetFeedSize = getHomeFeedPoolSize(numAuthors);
       const videosPerAuthor = Math.ceil(targetFeedSize / numAuthors);
 
       // Phase 1: fetch creator searches together and render them immediately.
@@ -265,7 +283,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
           .slice(0, videosPerAuthor);
       });
 
-      // Never render an orphaned desktop row. Keep overflow ready for future reshuffles.
+      // Keep a complete four-card pool; the visible feed is sliced responsively below.
       const { visibleFeed: fastFeed, reserveFeed, creatorIds } = buildBalancedCreatorFeed(authorVideos, targetFeedSize);
 
       if (requestId !== homeFeedRequestIdRef.current) return;
@@ -447,15 +465,28 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
 
   const playerMaxHeight = 'calc(100vh - 320px)';
   const videoMaxWidth = `calc(${playerMaxHeight} * (16 / 9))`;
-  const containerMaxWidth = (playlistData && playlistData.videos) 
+  const playerContainerMaxWidth = (playlistData && playlistData.videos)
     ? `calc(${videoMaxWidth} + 400px + 1.5rem)` 
     : videoMaxWidth;
+  const hasActiveMedia = Boolean(mediaInfo.videoId || mediaInfo.playlistId);
+  const isSearchView = Boolean(isSearching || searchError || searchResults);
+  const browseMaxWidth = isSearchView ? '80rem' : '110rem';
+  const viewMaxWidth = hasActiveMedia ? playerContainerMaxWidth : browseMaxWidth;
 
   const showBack = searchResults && (mediaInfo.videoId || mediaInfo.playlistId) && (url === lastSearchTerm || url.trim().length === 0);
   const initialSearchResultCount = searchResults ? getInitialSearchResultCount(searchResults.length) : 0;
   const primarySearchResults = searchResults?.slice(0, initialSearchResultCount) || [];
   const extraSearchResults = showAllSearchResults ? searchResults?.slice(initialSearchResultCount) || [] : [];
   const hasExtraSearchResults = Boolean(searchResults && searchResults.length > initialSearchResultCount);
+  const continueWatchingItems = isCompactLaptop ? continueWatching.slice(0, 3) : continueWatching;
+  const desktopHomeFeedSize = getTargetFeedSize(homeCreatorCount);
+  const compactHomeFeedSize = getCompactTargetFeedSize(homeCreatorCount);
+  const requestedHomeFeedSize = isCompactLaptop ? compactHomeFeedSize : desktopHomeFeedSize;
+  const availableHomeFeedSize = Math.min(requestedHomeFeedSize, homeFeed?.length || 0);
+  const completeHomeFeedSize = isCompactLaptop
+    ? Math.floor(availableHomeFeedSize / 3) * 3
+    : availableHomeFeedSize;
+  const visibleHomeFeed = homeFeed?.slice(0, completeHomeFeedSize) || [];
   const selectSearchResult = (result) => {
     if (result.type === 'playlist') loadMedia(null, result.id);
     else loadMedia(result.id, null);
@@ -463,7 +494,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
 
   return (
     <div className={`flex-1 min-h-0 w-full flex flex-col justify-start lg:justify-center gap-4 sm:gap-6 ${searchResults && !mediaInfo.videoId ? 'animate-page-fade' : ''}`}>
-      <div className="flex-none w-full mx-auto transition-all duration-500" style={{ maxWidth: containerMaxWidth }}>
+      <div className="flex-none w-full mx-auto transition-all duration-500" style={{ maxWidth: viewMaxWidth }}>
             <h2 className="text-2xl sm:text-3xl font-semibold mb-4 text-zinc-100 tracking-tight">Now Playing</h2>
             <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
               <div className="flex-1 relative">
@@ -507,7 +538,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
             </form>
       </div>
 
-      <div className="flex-1 min-h-0 w-full mx-auto flex flex-col lg:flex-row gap-4 sm:gap-6 lg:justify-center transition-all duration-500" style={{ maxWidth: containerMaxWidth }}>
+      <div className="flex-1 min-h-0 w-full mx-auto flex flex-col lg:flex-row gap-4 sm:gap-6 lg:justify-center transition-all duration-500" style={{ maxWidth: viewMaxWidth }}>
         {mediaInfo.videoId || mediaInfo.playlistId ? (
           <>
             <div 
@@ -594,7 +625,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               <div 
                 key="searching-state"
                 className="w-full mx-auto aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                style={{ maxWidth: videoMaxWidth, maxHeight: playerMaxHeight }}
+                style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
               >
                 <Loader2 className="w-10 h-10 animate-spin text-brand-500 mb-4" />
                 <p className="text-zinc-400 animate-pulse">Searching...</p>
@@ -603,7 +634,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               <div 
                 key="search-error-state"
                 className="w-full mx-auto aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                style={{ maxWidth: videoMaxWidth, maxHeight: playerMaxHeight }}
+                style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
               >
                 <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4 text-red-500">
                   <Search size={28} />
@@ -615,7 +646,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               <div 
                 key="search-results-state"
                 className="w-full mx-auto h-full glass rounded-3xl bg-zinc-900/30 border border-zinc-800/80 shadow-2xl overflow-y-auto custom-scrollbar p-4 sm:p-6"
-                style={{ maxWidth: videoMaxWidth, maxHeight: playerMaxHeight }}
+                style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
               >
                 <h3 className="text-xl font-semibold text-zinc-100 mb-6 px-2">Search Results</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -664,8 +695,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                 {continueWatchingEnabled && continueWatching.length > 0 && (
                   <section className="mb-8">
                     <h3 className="text-xl font-bold text-zinc-100 mb-6 px-2">Continue Watching</h3>
-                    <div className="flex sm:flex-wrap sm:justify-center gap-4 lg:gap-6 overflow-x-auto sm:overflow-visible snap-x snap-mandatory sm:snap-none pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                      {continueWatching.map((item, idx) => {
+                    <div className="flex lg:flex-wrap lg:justify-center gap-4 lg:gap-6 overflow-x-auto lg:overflow-visible snap-x snap-mandatory lg:snap-none pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {continueWatchingItems.map((item, idx) => {
                         const progressPercent = Math.min(100, Math.max(0, (item.progress / item.duration) * 100));
 
                         return (
@@ -721,11 +752,11 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                     <h3 className="text-xl font-medium text-zinc-400 mb-2">Recommendations Disabled</h3>
                     <p className="text-zinc-600 text-sm max-w-sm text-center">Your home feed is hidden. Use the search bar above to find a video or paste a URL to start watching.</p>
                   </div>
-                ) : homeFeed && homeFeed.length > 0 ? (
+                ) : visibleHomeFeed.length > 0 ? (
                   <section>
                     <h3 className="text-xl font-bold text-zinc-100 mb-6 px-2">Recommended for you</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
-                      {homeFeed.map((vid, idx) => (
+                      {visibleHomeFeed.map((vid, idx) => (
                         <button
                           key={`home-${vid.id}-${idx}`}
                           onClick={() => loadMedia(vid.id)}
@@ -765,7 +796,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                   <div
                     key="ready-state"
                     className="w-full mx-auto min-h-[400px] lg:min-h-0 lg:aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                    style={{ maxWidth: videoMaxWidth, maxHeight: playerMaxHeight }}
+                    style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
                   >
                     <div className="w-20 h-20 bg-zinc-800/80 rounded-full flex items-center justify-center mb-6 shadow-inner ring-1 ring-white/5">
                       <Play size={32} className="text-zinc-400 ml-1" fill="currentColor" />

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getContinueWatchingItems, getHomeHistoryContext, getTargetFeedSize } from '../src/utils/feed.js';
+import { blendRecommendationSources, buildBalancedCreatorFeed, getCompactTargetFeedSize, getContinueWatchingItems, getHomeFeedPoolSize, getHomeHistoryContext, getTargetFeedSize } from '../src/utils/feed.js';
 
 const videos = (prefix, count) => Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }));
 
@@ -11,6 +11,17 @@ test('feed size grows in complete desktop rows', () => {
   assert.equal(getTargetFeedSize(3), 16);
   assert.equal(getTargetFeedSize(4), 20);
   assert.equal(getTargetFeedSize(10), 20);
+});
+
+test('compact laptop feeds preserve full three-column rows and the largest feed keeps 24 cards available', () => {
+  assert.deepEqual(
+    [1, 2, 3, 4].map(getCompactTargetFeedSize),
+    [9, 12, 18, 21]
+  );
+  assert.deepEqual(
+    [1, 2, 3, 4].map(getHomeFeedPoolSize),
+    [12, 12, 20, 24]
+  );
 });
 
 test('home context always selects the four latest unique creators', () => {

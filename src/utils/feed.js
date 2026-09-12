@@ -47,6 +47,19 @@ export function getTargetFeedSize(creatorCount) {
   return Math.min(20, (creatorCount + 1) * DESKTOP_COLUMNS);
 }
 
+export function getCompactTargetFeedSize(creatorCount) {
+  const desktopTarget = getTargetFeedSize(creatorCount);
+  return desktopTarget > 0 ? Math.ceil(desktopTarget / 3) * 3 : 0;
+}
+
+export function getHomeFeedPoolSize(creatorCount) {
+  const largestTarget = Math.max(
+    getTargetFeedSize(creatorCount),
+    getCompactTargetFeedSize(creatorCount)
+  );
+  return largestTarget > 0 ? Math.ceil(largestTarget / DESKTOP_COLUMNS) * DESKTOP_COLUMNS : 0;
+}
+
 function arrangeGroups(groupedItems, random = Math.random) {
   const queues = groupedItems
     .map((items, groupIndex) => ({ groupIndex, items: [...items], used: 0 }))
