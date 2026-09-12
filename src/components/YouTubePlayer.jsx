@@ -618,7 +618,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
                         src={`https://img.youtube.com/vi/${vid.id}/maxresdefault.jpg`} 
                         videoId={vid.id}
                         alt={vid.title} 
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                       {vid.lengthSeconds > 0 && (
                         <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">

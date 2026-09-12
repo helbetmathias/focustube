@@ -30,6 +30,45 @@ const initialData = {
         videos: [{ childVideoRenderer: { videoId: 'lmnopqrstuv' } }],
       },
     },
+    {
+      lockupViewModel: {
+        contentId: 'PLnewformat12345',
+        contentType: 'LOCKUP_CONTENT_TYPE_PLAYLIST',
+        contentImage: {
+          collectionThumbnailViewModel: {
+            primaryThumbnail: {
+              thumbnailViewModel: {
+                image: {
+                  sources: [{ url: 'https://i.ytimg.com/vi/zyxwvutsrqp/hq720.jpg' }],
+                },
+                overlays: [{
+                  thumbnailOverlayBadgeViewModel: {
+                    thumbnailBadges: [{
+                      thumbnailBadgeViewModel: { text: '35 videos' },
+                    }],
+                  },
+                }],
+              },
+            },
+          },
+        },
+        metadata: {
+          lockupMetadataViewModel: {
+            title: { content: 'New format playlist' },
+            metadata: {
+              contentMetadataViewModel: {
+                metadataRows: [{
+                  metadataParts: [
+                    { text: { content: 'New creator' } },
+                    { text: { content: 'Playlist' } },
+                  ],
+                }],
+              },
+            },
+          },
+        },
+      },
+    },
   ],
 };
 
@@ -51,6 +90,12 @@ test('parses and normalizes YouTube web search renderers', () => {
   assert.equal(results[1].playlistId, 'PLabcdefghijk');
   assert.equal(results[1].videoCount, 25);
   assert.equal(results[1].videos[0].videoId, 'lmnopqrstuv');
+  assert.equal(results[2].type, 'playlist');
+  assert.equal(results[2].playlistId, 'PLnewformat12345');
+  assert.equal(results[2].title, 'New format playlist');
+  assert.equal(results[2].author, 'New creator');
+  assert.equal(results[2].videoCount, 35);
+  assert.equal(results[2].videos[0].videoId, 'zyxwvutsrqp');
 });
 
 test('fetches YouTube web search results through the server fallback', async () => {

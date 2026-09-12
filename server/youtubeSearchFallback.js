@@ -43,6 +43,8 @@ export function raceSearchSources(primaryRequest, fallbackRequest, {
 
 function rendererText(value) {
   if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value.content === 'string') return value.content;
   if (typeof value.simpleText === 'string') return value.simpleText;
   if (Array.isArray(value.runs)) {
     return value.runs.map(run => run?.text || '').join('');
@@ -140,6 +142,38 @@ function playlistFromRenderer(renderer) {
   };
 }
 
+function playlistFromLockup(lockup) {
+  if (lockup?.contentType !== 'LOCKUP_CONTENT_TYPE_PLAYLIST') return null;
+  if (!/^[\w-]{10,80}$/.test(lockup.contentId || '')) return null;
+
+  const metadata = lockup.metadata?.lockupMetadataViewModel;
+  const primaryThumbnail = lockup.contentImage
+    ?.collectionThumbnailViewModel
+    ?.primaryThumbnail
+    ?.thumbnailViewModel;
+  const thumbnailUrl = primaryThumbnail?.image?.sources?.at(-1)?.url || '';
+  const thumbnailVideoId = thumbnailUrl.match(/\/vi\/([\w-]{11})\//)?.[1];
+  const badgeTexts = (primaryThumbnail?.overlays || [])
+    .flatMap(overlay => overlay?.thumbnailOverlayBadgeViewModel?.thumbnailBadges || [])
+    .map(badge => rendererText(badge?.thumbnailBadgeViewModel?.text))
+    .filter(Boolean);
+  const badgeText = badgeTexts.find(text => /\d/.test(text)) || badgeTexts[0] || '';
+  const metadataParts = (metadata?.metadata?.contentMetadataViewModel?.metadataRows || [])
+    .flatMap(row => row?.metadataParts || [])
+    .map(part => rendererText(part?.text))
+    .filter(Boolean);
+
+  return {
+    type: 'playlist',
+    playlistId: lockup.contentId,
+    title: rendererText(metadata?.title),
+    author: metadataParts.find(text => text !== 'Playlist' && text !== 'View full playlist') || '',
+    videoCount: compactNumber(badgeText) || badgeText,
+    videos: thumbnailVideoId ? [{ videoId: thumbnailVideoId }] : [],
+    playlistThumbnail: thumbnailUrl,
+  };
+}
+
 export function extractYouTubeSearchResults(initialData) {
   const results = [];
   const seen = new Set();
@@ -154,6 +188,7 @@ export function extractYouTubeSearchResults(initialData) {
     const candidates = [
       videoFromRenderer(value.videoRenderer),
       playlistFromRenderer(value.playlistRenderer),
+      playlistFromLockup(value.lockupViewModel),
     ].filter(Boolean);
 
     for (const candidate of candidates) {

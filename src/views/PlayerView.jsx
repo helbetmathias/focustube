@@ -469,8 +469,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     ? `calc(${videoMaxWidth} + 400px + 1.5rem)` 
     : videoMaxWidth;
   const hasActiveMedia = Boolean(mediaInfo.videoId || mediaInfo.playlistId);
-  const isSearchView = Boolean(isSearching || searchError || searchResults);
-  const browseMaxWidth = isSearchView ? '80rem' : '110rem';
+  const browseMaxWidth = '110rem';
   const viewMaxWidth = hasActiveMedia ? playerContainerMaxWidth : browseMaxWidth;
 
   const showBack = searchResults && (mediaInfo.videoId || mediaInfo.playlistId) && (url === lastSearchTerm || url.trim().length === 0);
@@ -625,7 +624,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               <div 
                 key="searching-state"
                 className="w-full mx-auto aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
+                style={{ maxWidth: browseMaxWidth, maxHeight: playerMaxHeight }}
               >
                 <Loader2 className="w-10 h-10 animate-spin text-brand-500 mb-4" />
                 <p className="text-zinc-400 animate-pulse">Searching...</p>
@@ -634,7 +633,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               <div 
                 key="search-error-state"
                 className="w-full mx-auto aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
+                style={{ maxWidth: browseMaxWidth, maxHeight: playerMaxHeight }}
               >
                 <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4 text-red-500">
                   <Search size={28} />
@@ -646,7 +645,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               <div 
                 key="search-results-state"
                 className="w-full mx-auto h-full glass rounded-3xl bg-zinc-900/30 border border-zinc-800/80 shadow-2xl overflow-y-auto custom-scrollbar p-4 sm:p-6"
-                style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
+                style={{ maxWidth: browseMaxWidth, maxHeight: playerMaxHeight }}
               >
                 <h3 className="text-xl font-semibold text-zinc-100 mb-6 px-2">Search Results</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
