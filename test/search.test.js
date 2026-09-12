@@ -13,6 +13,26 @@ test('search results are deduplicated and lightly prioritize exact matches', () 
   assert.deepEqual(results.map(result => result.id), ['documentary', 'title', 'music']);
 });
 
+test('playlists only appear when the query explicitly asks for them', () => {
+  const mixedResults = [
+    { id: 'video-1', type: 'video', title: 'XSlayder video', author: 'XSlayder' },
+    { id: 'playlist-1', type: 'playlist', title: 'XSlayder uploads', author: 'XSlayder' },
+  ];
+
+  assert.deepEqual(
+    prepareSearchResults(mixedResults, 'xslayder').map(result => result.id),
+    ['video-1']
+  );
+  assert.deepEqual(
+    prepareSearchResults(mixedResults, 'xslayder playlist').map(result => result.id),
+    ['video-1', 'playlist-1']
+  );
+  assert.deepEqual(
+    prepareSearchResults(mixedResults, 'XSLAYDER PLAYLISTS').map(result => result.id),
+    ['video-1', 'playlist-1']
+  );
+});
+
 test('search batches preserve complete two and three column rows', () => {
   assert.equal(getInitialSearchResultCount(49), 48);
   assert.equal(getInitialSearchResultCount(8), 6);

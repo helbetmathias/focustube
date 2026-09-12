@@ -67,13 +67,15 @@ const SearchResultCard = ({ vid, onSelect, formatDuration, className = '' }) => 
       onClick={() => onSelect(vid)}
       className={`flex flex-col text-left group hover:bg-zinc-800/50 p-2 rounded-xl transition-colors ${className}`}
     >
-      <div className="w-full aspect-video bg-zinc-800 rounded-lg relative overflow-hidden mb-3 shadow-md group-hover:shadow-lg transition-all">
-        <ThumbnailImage
-          src={`https://img.youtube.com/vi/${thumbnailVideoId}/maxresdefault.jpg`}
-          videoId={thumbnailVideoId}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          alt=""
-        />
+      <div className="w-full aspect-video bg-zinc-800 rounded-lg relative overflow-hidden mb-3 shadow-md">
+        <div className="w-full h-full transform-gpu transition-transform duration-500 ease-out group-hover:scale-105 [will-change:transform] motion-reduce:transform-none">
+          <ThumbnailImage
+            src={`https://img.youtube.com/vi/${thumbnailVideoId}/maxresdefault.jpg`}
+            videoId={thumbnailVideoId}
+            className="w-full h-full object-cover"
+            alt=""
+          />
+        </div>
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
           {isPlaylist ? (
             <ListVideo size={32} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
@@ -101,6 +103,7 @@ const SearchResultCard = ({ vid, onSelect, formatDuration, className = '' }) => 
 export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [url, setUrl] = useState('');
   const [mediaInfo, setMediaInfo] = useState({ videoId: null, playlistId: null });
+  const [playlistStartIndex, setPlaylistStartIndex] = useState(0);
   const [startSeconds, setStartSeconds] = useState(0);
   const [playlistData, setPlaylistData] = useState(null);
   const [playlistMetadata, setPlaylistMetadata] = useState(null);
@@ -120,6 +123,9 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [homeCreatorCount, setHomeCreatorCount] = useState(0);
   const [isCompactLaptop, setIsCompactLaptop] = useState(getCompactLaptopMatch);
   const currentVideoIdRef = useRef(null);
+  const activePlaylistIdRef = useRef(null);
+  const activePlaylistIndexRef = useRef(-1);
+  const loadMediaRequestIdRef = useRef(0);
   const homeFeedRequestIdRef = useRef(0);
   const historyWriteQueueRef = useRef(Promise.resolve());
 
@@ -368,17 +374,40 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     }
   }, [activePlaylistIndex, isActive]);
 
-  const loadMedia = async (vid, pid, forceStart = false) => {
+  const loadMedia = async (vid, pid, forceStart = false, requestedPlaylistIndex = -1) => {
+    const requestId = ++loadMediaRequestIdRef.current;
     let progress = 0;
-    if (!forceStart && vid) {
+    let playlistIndex = Number.isInteger(requestedPlaylistIndex) ? requestedPlaylistIndex : -1;
+
+    if (vid) {
       try {
         const history = await getHistory();
-        const item = history.find(i => i.id === vid);
-        if (item && item.progress) progress = item.progress;
+        const historyItem = history.find(i => i.id === vid) || null;
+        if (!forceStart && historyItem?.progress) progress = historyItem.progress;
+        if (pid && playlistIndex < 0 && historyItem?.playlistId === pid && Number.isInteger(historyItem.playlistIndex)) {
+          playlistIndex = historyItem.playlistIndex;
+        }
       } catch {}
     }
+
+    // Older history entries predate playlistIndex. Resolve the saved video's
+    // position once so resuming keeps the YouTube playlist context.
+    if (pid && vid && playlistIndex < 0) {
+      try {
+        const details = await fetchPlaylistDetails(pid);
+        if (requestId !== loadMediaRequestIdRef.current) return;
+        setPlaylistMetadata(details);
+        playlistIndex = details.videos.findIndex(video => video.id === vid);
+      } catch {}
+    }
+
+    if (requestId !== loadMediaRequestIdRef.current) return;
+    const normalizedPlaylistIndex = pid ? Math.max(0, playlistIndex) : -1;
     setStartSeconds(progress);
+    setPlaylistStartIndex(Math.max(0, normalizedPlaylistIndex));
     setMediaInfo({ videoId: vid, playlistId: pid });
+    activePlaylistIdRef.current = pid || null;
+    activePlaylistIndexRef.current = normalizedPlaylistIndex;
     setReloadKey(prev => prev + 1);
     currentVideoIdRef.current = vid;
     if (!pid) {
@@ -418,8 +447,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     }
   };
 
-  const updateHistory = async (id, title, progress, duration, author) => {
-    const playlistId = mediaInfo.playlistId || undefined;
+  const updateHistory = async (id, title, progress, duration, author, playlistIndex = activePlaylistIndexRef.current) => {
+    const playlistId = activePlaylistIdRef.current || undefined;
 
     const writeHistory = async () => {
       try {
@@ -436,7 +465,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
           type: 'video',
           progress: progress !== undefined ? progress : (existingItem?.progress || 0),
           duration: duration || existingItem?.duration || 0,
-          playlistId
+          playlistId,
+          playlistIndex: playlistId
+            ? (Number.isInteger(playlistIndex) && playlistIndex >= 0 ? playlistIndex : existingItem?.playlistIndex)
+            : undefined
         });
 
         await saveHistory(updatedHistory.slice(0, 500));
@@ -451,7 +483,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
 
   const handleVideoChange = ({ id, title, author, playlist, playlistIndex }) => {
     currentVideoIdRef.current = id;
-    updateHistory(id, title, undefined, undefined, author);
+    if (Number.isInteger(playlistIndex) && playlistIndex >= 0) {
+      activePlaylistIndexRef.current = playlistIndex;
+    }
+    updateHistory(id, title, undefined, undefined, author, playlistIndex);
     if (playlist && playlist.length > 1) {
       setPlaylistData({ videos: playlist, currentIndex: playlistIndex });
     }
@@ -560,6 +595,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                 key={`${mediaInfo.videoId}-${mediaInfo.playlistId}-${reloadKey}`}
                 videoId={mediaInfo.videoId} 
                 playlistId={mediaInfo.playlistId} 
+                playlistIndex={playlistStartIndex}
                 startSeconds={startSeconds}
                 onVideoChange={handleVideoChange} 
                 onProgress={handleProgress}
@@ -584,7 +620,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                       <button 
                         id={`playlist-item-${idx}`}
                         key={`${vid}-${idx}`} 
-                        onClick={() => loadMedia(vid, mediaInfo.playlistId)}
+                        onClick={() => loadMedia(vid, mediaInfo.playlistId, false, idx)}
                         className={`w-full flex gap-3 p-2 rounded-xl transition-colors text-left hover:bg-zinc-800/80 ${idx === playlistData.currentIndex ? 'bg-zinc-800 border border-zinc-700 shadow-md' : 'border border-transparent'}`}
                       >
                         <div className="w-24 h-14 bg-zinc-800 rounded relative flex-shrink-0 overflow-hidden shadow-sm">
@@ -701,7 +737,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                         return (
                           <button
                             key={`continue-${item.id}`}
-                            onClick={() => loadMedia(item.id)}
+                            onClick={() => loadMedia(item.id, item.playlistId, false, item.playlistIndex)}
                             className={`group text-left flex-none w-[82%] sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-1rem)] xl:w-[calc(25%-1.125rem)] flex flex-col focus:outline-none snap-start ${!disableFeedAnims ? 'animate-card-pop' : ''}`}
                             style={{ animationDelay: `${idx * 40}ms` }}
                           >

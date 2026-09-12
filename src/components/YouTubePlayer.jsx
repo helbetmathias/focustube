@@ -85,7 +85,7 @@ const getInitialNotifications = () => {
   return notifs !== null ? notifs === 'true' : true;
 };
 
-export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVideoChange, onProgress, isActive, onPlayRelated }) {
+export default function YouTubePlayer({ videoId, playlistId, playlistIndex = 0, startSeconds, onVideoChange, onProgress, isActive, onPlayRelated }) {
   // Device detection
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -302,7 +302,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
       if (playerRef.current) {
         if (playerRef.current.loadVideoById) {
           if (playlistId) {
-            playerRef.current.loadPlaylist({ list: playlistId, listType: 'playlist', index: 0, startSeconds: startSeconds || 0 });
+            playerRef.current.loadPlaylist({ list: playlistId, listType: 'playlist', index: Math.max(0, playlistIndex), startSeconds: startSeconds || 0 });
           } else if (videoId) {
             playerRef.current.loadVideoById({ videoId: videoId, startSeconds: startSeconds || 0 });
           }
@@ -318,6 +318,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
         playerVars: {
           listType: playlistId ? 'playlist' : undefined,
           list: playlistId,
+          index: playlistId ? Math.max(0, playlistIndex) : undefined,
           autoplay: 1,
           modestbranding: 1,
           rel: 0,
@@ -488,7 +489,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
     }
 
     // Do NOT destroy the player on cleanup! We want to reuse it.
-  }, [videoId, playlistId, recommMode, isMobile, startSeconds]);
+  }, [videoId, playlistId, playlistIndex, recommMode, isMobile, startSeconds]);
 
   // Highlight 10s Timeout
   useEffect(() => {
@@ -582,7 +583,7 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
           </button>
 
           {/* Scrollable Content Layer */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-md overflow-y-auto custom-scrollbar transform-gpu">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-md overflow-y-auto custom-scrollbar">
             <div className="flex flex-col items-center justify-center min-h-full p-4 sm:p-6 sm:py-12">
             
             {isFetchingRelated ? (
@@ -614,12 +615,14 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
                     className="min-w-[160px] max-w-[160px] sm:min-w-0 sm:max-w-none shrink-0 snap-start group text-left flex flex-col gap-2 sm:gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   >
                     <div className="aspect-video bg-zinc-900 rounded-xl overflow-hidden relative shadow-lg ring-1 ring-white/10">
-                      <ThumbnailImage 
-                        src={`https://img.youtube.com/vi/${vid.id}/maxresdefault.jpg`} 
-                        videoId={vid.id}
-                        alt={vid.title} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      />
+                      <div className="w-full h-full transform-gpu transition-transform duration-500 ease-out group-hover:scale-105 [will-change:transform] motion-reduce:transform-none">
+                        <ThumbnailImage
+                          src={`https://img.youtube.com/vi/${vid.id}/maxresdefault.jpg`}
+                          videoId={vid.id}
+                          alt={vid.title}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
                       {vid.lengthSeconds > 0 && (
                         <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">
                           {Math.floor(vid.lengthSeconds / 60)}:{(vid.lengthSeconds % 60).toString().padStart(2, '0')}

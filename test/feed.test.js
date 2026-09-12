@@ -65,6 +65,22 @@ test('continue watching keeps the four latest unique unfinished videos', () => {
   assert.deepEqual(result.map(item => item.id), ['newest', 'second', 'third', 'fourth']);
 });
 
+test('continue watching preserves playlist resume context', () => {
+  const [item] = getContinueWatchingItems([
+    {
+      id: 'playlist-video',
+      playlistId: 'playlist-id',
+      playlistIndex: 7,
+      progress: 42,
+      duration: 100,
+      timestamp: 1,
+    },
+  ]);
+
+  assert.equal(item.playlistId, 'playlist-id');
+  assert.equal(item.playlistIndex, 7);
+});
+
 test('creator results are interleaved and trimmed to a complete row', () => {
   const result = buildBalancedCreatorFeed(
     [videos('a', 5), videos('b', 5), videos('c', 5), videos('d', 5)],

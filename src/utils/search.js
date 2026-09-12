@@ -15,9 +15,11 @@ export function prepareSearchResults(results, query) {
 
   const seen = new Set();
   const normalizedQuery = normalize(query);
+  const includesPlaylistKeyword = /\bplaylists?\b/i.test(String(query || ''));
   return results
     .filter(result => {
       if (!result?.id) return false;
+      if (result.type === 'playlist' && !includesPlaylistKeyword) return false;
       const key = `${result.type || 'video'}:${result.id}`;
       if (seen.has(key)) return false;
       seen.add(key);
