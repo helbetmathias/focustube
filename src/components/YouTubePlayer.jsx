@@ -611,14 +611,14 @@ export default function YouTubePlayer({ videoId, playlistId, startSeconds, onVid
                       setShowOverlay(false);
                       onPlayRelated?.(vid.id);
                     }}
-                    className="min-w-[160px] max-w-[160px] sm:min-w-0 sm:max-w-none shrink-0 snap-start group text-left flex flex-col gap-2 sm:gap-3 rounded-xl transition-all duration-300 hover:scale-[1.03] outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    className="min-w-[160px] max-w-[160px] sm:min-w-0 sm:max-w-none shrink-0 snap-start group text-left flex flex-col gap-2 sm:gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   >
-                    <div className="aspect-video bg-zinc-900 rounded-xl overflow-hidden relative shadow-lg ring-1 ring-white/10 group-hover:ring-brand-500/50 transition-all">
+                    <div className="aspect-video bg-zinc-900 rounded-xl overflow-hidden relative shadow-lg ring-1 ring-white/10">
                       <ThumbnailImage 
                         src={`https://img.youtube.com/vi/${vid.id}/maxresdefault.jpg`} 
                         videoId={vid.id}
                         alt={vid.title} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        className="w-full h-full object-cover"
                       />
                       {vid.lengthSeconds > 0 && (
                         <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">
