@@ -1,5 +1,14 @@
 const normalize = value => String(value || '').trim().toLocaleLowerCase();
 
+export function queryRequestsShorts(query) {
+  return /(^|[^\w])#?shorts?(?=$|[^\w])/i.test(String(query || ''));
+}
+
+export function filterKnownShorts(results) {
+  if (!Array.isArray(results)) return [];
+  return results.filter(result => result?.isShort !== true);
+}
+
 function relevanceScore(result, normalizedQuery) {
   if (!normalizedQuery) return 0;
 
@@ -16,10 +25,12 @@ export function prepareSearchResults(results, query) {
   const seen = new Set();
   const normalizedQuery = normalize(query);
   const includesPlaylistKeyword = /\bplaylists?\b/i.test(String(query || ''));
+  const includesShortsKeyword = queryRequestsShorts(query);
   return results
     .filter(result => {
       if (!result?.id) return false;
       if (result.type === 'playlist' && !includesPlaylistKeyword) return false;
+      if (result.isShort === true && !includesShortsKeyword) return false;
       const key = `${result.type || 'video'}:${result.id}`;
       if (seen.has(key)) return false;
       seen.add(key);

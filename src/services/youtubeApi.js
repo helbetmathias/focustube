@@ -126,7 +126,8 @@ export async function fetchRelatedVideos(videoId) {
       lengthSeconds: video.lengthSeconds,
       viewCount: video.viewCountText || video.viewCount,
       thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`,
-      type: 'video'
+      type: 'video',
+      isShort: video.isShort === true
     }));
   } catch {
     // The original browser-side provider pool remains the offline fallback.
@@ -152,7 +153,8 @@ export async function fetchRelatedVideos(videoId) {
         lengthSeconds: video.lengthSeconds,
         viewCount: video.viewCountText || video.viewCount,
         thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`,
-        type: 'video'
+        type: 'video',
+        isShort: video.isShort === true
       }));
     } catch {
       markInstanceFailed(uri, CAPABILITIES.RELATED);
@@ -171,6 +173,7 @@ export async function fetchAuthorFallback(author, excludeVideoId) {
     let filtered = searchResults.filter(video =>
       video.id !== excludeVideoId &&
       video.type === 'video' &&
+      video.isShort !== true &&
       video.author &&
       (video.author.toLowerCase().includes(cleanAuthor.toLowerCase()) ||
         cleanAuthor.toLowerCase().includes(video.author.toLowerCase()))
@@ -178,7 +181,7 @@ export async function fetchAuthorFallback(author, excludeVideoId) {
 
     if (filtered.length === 0) {
       filtered = searchResults
-        .filter(video => video.type === 'video' && video.id !== excludeVideoId)
+        .filter(video => video.type === 'video' && video.isShort !== true && video.id !== excludeVideoId)
         .slice(0, 15);
     }
 
@@ -264,6 +267,7 @@ function normalizeSearchResults(data) {
         lengthSeconds: item.lengthSeconds,
         viewCount: item.viewCount,
         publishedText: item.publishedText,
+        isShort: item.isShort === true,
         thumbnail: `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`
       };
     });

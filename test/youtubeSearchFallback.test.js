@@ -22,6 +22,29 @@ const initialData = {
       },
     },
     {
+      videoRenderer: {
+        videoId: 'shortsabcde',
+        title: {
+          runs: [{ text: 'Example Short' }],
+          accessibility: { accessibilityData: { label: 'Example Short - play Short' } },
+        },
+        ownerText: { runs: [{ text: 'Short creator' }] },
+        lengthText: { simpleText: '1:11' },
+        navigationEndpoint: {
+          commandMetadata: {
+            webCommandMetadata: {
+              url: '/shorts/shortsabcde',
+              webPageType: 'WEB_PAGE_TYPE_SHORTS',
+            },
+          },
+          reelWatchEndpoint: { videoId: 'shortsabcde' },
+        },
+        thumbnailOverlays: [{
+          thumbnailOverlayTimeStatusRenderer: { style: 'SHORTS' },
+        }],
+      },
+    },
+    {
       playlistRenderer: {
         playlistId: 'PLabcdefghijk',
         title: { simpleText: 'Example playlist' },
@@ -85,17 +108,21 @@ test('parses and normalizes YouTube web search renderers', () => {
     lengthSeconds: 62,
     viewCount: 1_200_000,
     publishedText: '2 days ago',
+    isShort: false,
   });
-  assert.equal(results[1].type, 'playlist');
-  assert.equal(results[1].playlistId, 'PLabcdefghijk');
-  assert.equal(results[1].videoCount, 25);
-  assert.equal(results[1].videos[0].videoId, 'lmnopqrstuv');
+  assert.equal(results[1].type, 'video');
+  assert.equal(results[1].videoId, 'shortsabcde');
+  assert.equal(results[1].isShort, true);
   assert.equal(results[2].type, 'playlist');
-  assert.equal(results[2].playlistId, 'PLnewformat12345');
-  assert.equal(results[2].title, 'New format playlist');
-  assert.equal(results[2].author, 'New creator');
-  assert.equal(results[2].videoCount, 35);
-  assert.equal(results[2].videos[0].videoId, 'zyxwvutsrqp');
+  assert.equal(results[2].playlistId, 'PLabcdefghijk');
+  assert.equal(results[2].videoCount, 25);
+  assert.equal(results[2].videos[0].videoId, 'lmnopqrstuv');
+  assert.equal(results[3].type, 'playlist');
+  assert.equal(results[3].playlistId, 'PLnewformat12345');
+  assert.equal(results[3].title, 'New format playlist');
+  assert.equal(results[3].author, 'New creator');
+  assert.equal(results[3].videoCount, 35);
+  assert.equal(results[3].videos[0].videoId, 'zyxwvutsrqp');
 });
 
 test('fetches YouTube web search results through the server fallback', async () => {

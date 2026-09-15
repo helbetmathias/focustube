@@ -112,6 +112,18 @@ export function parseYouTubeInitialData(html) {
 
 function videoFromRenderer(renderer) {
   if (!/^[\w-]{11}$/.test(renderer?.videoId || '')) return null;
+  const navigationEndpoint = renderer.navigationEndpoint || {};
+  const webMetadata = navigationEndpoint.commandMetadata?.webCommandMetadata || {};
+  const isShort = Boolean(
+    navigationEndpoint.reelWatchEndpoint
+    || webMetadata.webPageType === 'WEB_PAGE_TYPE_SHORTS'
+    || String(webMetadata.url || '').startsWith('/shorts/')
+    || renderer.title?.accessibility?.accessibilityData?.label?.toLowerCase().includes('play short')
+    || renderer.thumbnailOverlays?.some(overlay => {
+      const status = overlay?.thumbnailOverlayTimeStatusRenderer;
+      return status?.style === 'SHORTS' || status?.icon?.iconType === 'YOUTUBE_SHORTS';
+    })
+  );
   return {
     type: 'video',
     videoId: renderer.videoId,
@@ -120,6 +132,7 @@ function videoFromRenderer(renderer) {
     lengthSeconds: durationSeconds(rendererText(renderer.lengthText)),
     viewCount: compactNumber(rendererText(renderer.viewCountText) || rendererText(renderer.shortViewCountText)),
     publishedText: rendererText(renderer.publishedTimeText),
+    isShort,
   };
 }
 

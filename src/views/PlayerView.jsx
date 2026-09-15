@@ -3,7 +3,7 @@ import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGr
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
 import { blendRecommendationSources, buildBalancedCreatorFeed, getCompactTargetFeedSize, getContinueWatchingItems, getHomeFeedPoolSize, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
-import { getInitialSearchResultCount, prepareSearchResults } from '../utils/search';
+import { filterKnownShorts, getInitialSearchResultCount, prepareSearchResults } from '../utils/search';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
 import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
 
@@ -225,7 +225,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
             if (requestId !== homeFeedRequestIdRef.current || !Array.isArray(realResults)) return;
 
             const realIds = new Set();
-            const realFeed = realResults.filter(video => {
+            const realFeed = filterKnownShorts(realResults).filter(video => {
               if (
                 video.type !== 'video'
                 || historyIds.has(video.id)
@@ -251,14 +251,14 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       if (!forceRefresh) {
         const cache = await getHomeBlendCache();
         const poolTarget = getHomeFeedPoolSize(creators.length);
+        const cachedFeed = filterKnownShorts(cache?.feed);
         if (
           cache?.historySignature === signature
-          && Array.isArray(cache.feed)
-          && cache.feed.length >= poolTarget
+          && cachedFeed.length >= poolTarget
         ) {
-          setHomeFeed(cache.feed);
+          setHomeFeed(cachedFeed);
           setIsFeedLoading(false);
-          enrichWithRealRecommendations(cache.feed, new Set(cache.feed.map(video => video.id)));
+          enrichWithRealRecommendations(cachedFeed, new Set(cachedFeed.map(video => video.id)));
           return;
         }
       }
@@ -280,7 +280,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         }
 
         const seenInThisAuthor = new Set();
-        return result.value
+        return filterKnownShorts(result.value)
           .filter(video => {
             if (video.type !== 'video' || historyIds.has(video.id) || seenInThisAuthor.has(video.id)) return false;
             seenInThisAuthor.add(video.id);

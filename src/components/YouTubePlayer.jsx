@@ -3,6 +3,7 @@ import { Maximize, Minimize, SkipForward, Info, Star, RotateCcw, Play } from 'lu
 import { fetchSkipSegments } from '../utils/sponsorblock';
 import { fetchRelatedVideos, fetchAuthorFallback } from '../services/youtubeApi';
 import { getTimeSaved, saveTimeSaved, getFeedCache, saveFeedCache } from '../services/storage';
+import { filterKnownShorts } from '../utils/search';
 
 const ThumbnailImage = ({ src, videoId, alt, className }) => {
   const [level, setLevel] = useState(0);
@@ -375,7 +376,8 @@ export default function YouTubePlayer({ videoId, playlistId, playlistIndex = 0, 
               const applyResults = (videos, source) => {
                 finishedSources += 1;
                 if (requestId !== relatedRequestIdRef.current) return;
-                if (!Array.isArray(videos) || videos.length === 0) {
+                const shortFreeVideos = filterKnownShorts(videos);
+                if (shortFreeVideos.length === 0) {
                   if (finishedSources >= 2 && !relatedStatusRef.current.hasResults) {
                     relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: false, failed: true };
                     setRelatedError(true);
@@ -392,15 +394,15 @@ export default function YouTubePlayer({ videoId, playlistId, playlistIndex = 0, 
                   // Real related results take priority, while retaining unique search fallbacks for variety.
                   setRelatedVideos(previous => {
                     const fallback = Array.isArray(previous) ? previous : [];
-                    const realIds = new Set(videos.map(video => video.id));
-                    return [...videos, ...fallback.filter(video => !realIds.has(video.id))].slice(0, 20);
+                    const realIds = new Set(shortFreeVideos.map(video => video.id));
+                    return [...shortFreeVideos, ...filterKnownShorts(fallback).filter(video => !realIds.has(video.id))].slice(0, 20);
                   });
                 } else {
                   // Search results win the race only when real recommendations have not arrived yet.
-                  setRelatedVideos(previous => Array.isArray(previous) && previous.length > 0 ? previous : videos);
+                  setRelatedVideos(previous => filterKnownShorts(previous).length > 0 ? filterKnownShorts(previous) : shortFreeVideos);
                 }
 
-                cacheVideos(videos);
+                cacheVideos(shortFreeVideos);
               };
 
               // Run both sources together: search is the fast fallback, real related data is preferred when available.

@@ -33,6 +33,27 @@ test('playlists only appear when the query explicitly asks for them', () => {
   );
 });
 
+test('Shorts only appear when the query explicitly asks for them', () => {
+  const mixedResults = [
+    { id: 'regular', type: 'video', title: 'Regular video', isShort: false, lengthSeconds: 75 },
+    { id: 'short', type: 'video', title: 'Vertical clip', isShort: true, lengthSeconds: 71 },
+    { id: 'unknown', type: 'video', title: 'Short music video', lengthSeconds: 58 },
+  ];
+
+  assert.deepEqual(
+    prepareSearchResults(mixedResults, 'kurzgesagt').map(result => result.id),
+    ['regular', 'unknown']
+  );
+  assert.deepEqual(
+    prepareSearchResults(mixedResults, 'kurzgesagt shorts').map(result => result.id),
+    ['regular', 'short', 'unknown']
+  );
+  assert.deepEqual(
+    prepareSearchResults(mixedResults, '#short').map(result => result.id),
+    ['regular', 'short', 'unknown']
+  );
+});
+
 test('search batches preserve complete two and three column rows', () => {
   assert.equal(getInitialSearchResultCount(49), 48);
   assert.equal(getInitialSearchResultCount(8), 6);
