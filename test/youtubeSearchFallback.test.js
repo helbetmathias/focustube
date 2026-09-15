@@ -22,6 +22,36 @@ const initialData = {
       },
     },
     {
+      shortsLockupViewModel: {
+        entityId: 'shorts-shelf-item-lockupshort',
+        accessibilityText: 'Dedicated shelf Short, 2.8 million views - play Short',
+        onTap: {
+          innertubeCommand: {
+            commandMetadata: {
+              webCommandMetadata: {
+                url: '/shorts/lockupshort',
+                webPageType: 'WEB_PAGE_TYPE_SHORTS',
+              },
+            },
+            reelWatchEndpoint: {
+              videoId: 'lockupshort',
+              thumbnail: {
+                thumbnails: [{
+                  url: 'https://i.ytimg.com/vi/lockupshort/frame0.jpg',
+                  width: 1080,
+                  height: 1920,
+                }],
+              },
+            },
+          },
+        },
+        overlayMetadata: {
+          primaryText: { content: 'Dedicated shelf Short' },
+          secondaryText: { content: '2.8M views' },
+        },
+      },
+    },
+    {
       videoRenderer: {
         videoId: 'shortsabcde',
         title: {
@@ -110,19 +140,27 @@ test('parses and normalizes YouTube web search renderers', () => {
     publishedText: '2 days ago',
     isShort: false,
   });
-  assert.equal(results[1].type, 'video');
-  assert.equal(results[1].videoId, 'shortsabcde');
-  assert.equal(results[1].isShort, true);
-  assert.equal(results[2].type, 'playlist');
-  assert.equal(results[2].playlistId, 'PLabcdefghijk');
-  assert.equal(results[2].videoCount, 25);
-  assert.equal(results[2].videos[0].videoId, 'lmnopqrstuv');
-  assert.equal(results[3].type, 'playlist');
-  assert.equal(results[3].playlistId, 'PLnewformat12345');
-  assert.equal(results[3].title, 'New format playlist');
-  assert.equal(results[3].author, 'New creator');
-  assert.equal(results[3].videoCount, 35);
-  assert.equal(results[3].videos[0].videoId, 'zyxwvutsrqp');
+  const shortResult = results.find(result => result.videoId === 'shortsabcde');
+  assert.equal(shortResult.type, 'video');
+  assert.equal(shortResult.isShort, true);
+
+  const lockupResult = results.find(result => result.videoId === 'lockupshort');
+  assert.equal(lockupResult.type, 'video');
+  assert.equal(lockupResult.title, 'Dedicated shelf Short');
+  assert.equal(lockupResult.viewCount, 2_800_000);
+  assert.equal(lockupResult.isShort, true);
+
+  const classicPlaylist = results.find(result => result.playlistId === 'PLabcdefghijk');
+  assert.equal(classicPlaylist.type, 'playlist');
+  assert.equal(classicPlaylist.videoCount, 25);
+  assert.equal(classicPlaylist.videos[0].videoId, 'lmnopqrstuv');
+
+  const lockupPlaylist = results.find(result => result.playlistId === 'PLnewformat12345');
+  assert.equal(lockupPlaylist.type, 'playlist');
+  assert.equal(lockupPlaylist.title, 'New format playlist');
+  assert.equal(lockupPlaylist.author, 'New creator');
+  assert.equal(lockupPlaylist.videoCount, 35);
+  assert.equal(lockupPlaylist.videos[0].videoId, 'zyxwvutsrqp');
 });
 
 test('fetches YouTube web search results through the server fallback', async () => {

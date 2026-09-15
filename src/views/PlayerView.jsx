@@ -3,7 +3,7 @@ import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGr
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
 import { blendRecommendationSources, buildBalancedCreatorFeed, getCompactTargetFeedSize, getContinueWatchingItems, getHomeFeedPoolSize, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
-import { filterKnownShorts, getInitialSearchResultCount, prepareSearchResults } from '../utils/search';
+import { filterKnownShorts, getInitialSearchResultCount, getSearchIntent, prepareSearchResults } from '../utils/search';
 import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
 import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
 
@@ -430,12 +430,14 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       loadMedia(parsed.videoId, parsed.playlistId);
     } else if (parsed.query) {
       // It's a search
+      const searchIntent = getSearchIntent(parsed.query);
+      const providerQuery = searchIntent.searchQuery || parsed.query;
       loadMedia(null, null); // clear player
       setIsSearching(true);
       setSearchError(false);
       setLastSearchTerm(url);
       setShowAllSearchResults(false);
-      fetchSearchResults(parsed.query)
+      fetchSearchResults(providerQuery)
         .then(results => {
           setSearchResults(prepareSearchResults(results, parsed.query));
           setIsSearching(false);
@@ -830,8 +832,8 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
                 ) : (
                   <div
                     key="ready-state"
-                    className="w-full mx-auto min-h-[400px] lg:min-h-0 lg:aspect-video glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
-                    style={{ maxWidth: '80rem', maxHeight: playerMaxHeight }}
+                    className="w-full mx-auto min-h-[360px] sm:min-h-[420px] lg:h-[clamp(420px,52vh,620px)] glass rounded-3xl flex flex-col items-center justify-center bg-zinc-900/30 border border-zinc-800/80 shadow-2xl transition-all duration-500"
+                    style={{ maxWidth: browseMaxWidth }}
                   >
                     <div className="w-20 h-20 bg-zinc-800/80 rounded-full flex items-center justify-center mb-6 shadow-inner ring-1 ring-white/5">
                       <Play size={32} className="text-zinc-400 ml-1" fill="currentColor" />

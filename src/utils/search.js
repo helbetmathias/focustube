@@ -1,7 +1,19 @@
 const normalize = value => String(value || '').trim().toLocaleLowerCase();
 
+const isShortsToken = token => /^#?shorts?$/i.test(
+  String(token || '').replace(/^[,;:!?]+|[,;:!?]+$/g, '')
+);
+
+export function getSearchIntent(query) {
+  const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
+  const wantsShorts = tokens.some(isShortsToken);
+  const searchQuery = tokens.filter(token => !isShortsToken(token)).join(' ');
+
+  return { searchQuery, wantsShorts };
+}
+
 export function queryRequestsShorts(query) {
-  return /(^|[^\w])#?shorts?(?=$|[^\w])/i.test(String(query || ''));
+  return getSearchIntent(query).wantsShorts;
 }
 
 export function filterKnownShorts(results) {
@@ -23,14 +35,14 @@ export function prepareSearchResults(results, query) {
   if (!Array.isArray(results)) return [];
 
   const seen = new Set();
-  const normalizedQuery = normalize(query);
+  const { searchQuery, wantsShorts } = getSearchIntent(query);
+  const normalizedQuery = normalize(searchQuery);
   const includesPlaylistKeyword = /\bplaylists?\b/i.test(String(query || ''));
-  const includesShortsKeyword = queryRequestsShorts(query);
   return results
     .filter(result => {
       if (!result?.id) return false;
       if (result.type === 'playlist' && !includesPlaylistKeyword) return false;
-      if (result.isShort === true && !includesShortsKeyword) return false;
+      if (wantsShorts ? result.isShort !== true : result.isShort === true) return false;
       const key = `${result.type || 'video'}:${result.id}`;
       if (seen.has(key)) return false;
       seen.add(key);

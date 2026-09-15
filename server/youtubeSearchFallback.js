@@ -136,6 +136,26 @@ function videoFromRenderer(renderer) {
   };
 }
 
+function shortFromLockup(lockup) {
+  const reelEndpoint = lockup?.onTap?.innertubeCommand?.reelWatchEndpoint;
+  if (!/^[\w-]{11}$/.test(reelEndpoint?.videoId || '')) return null;
+
+  const title = rendererText(lockup.overlayMetadata?.primaryText)
+    || String(lockup.accessibilityText || '').replace(/,\s*[\d.,]+\s*\w*\s+views?.*$/i, '');
+  const viewText = rendererText(lockup.overlayMetadata?.secondaryText);
+
+  return {
+    type: 'video',
+    videoId: reelEndpoint.videoId,
+    title,
+    author: '',
+    lengthSeconds: 0,
+    viewCount: compactNumber(viewText),
+    publishedText: '',
+    isShort: true,
+  };
+}
+
 function playlistFromRenderer(renderer) {
   if (!/^[\w-]{10,80}$/.test(renderer?.playlistId || '')) return null;
   const videos = (renderer.videos || [])
@@ -200,6 +220,7 @@ export function extractYouTubeSearchResults(initialData) {
 
     const candidates = [
       videoFromRenderer(value.videoRenderer),
+      shortFromLockup(value.shortsLockupViewModel),
       playlistFromRenderer(value.playlistRenderer),
       playlistFromLockup(value.lockupViewModel),
     ].filter(Boolean);

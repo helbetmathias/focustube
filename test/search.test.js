@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getInitialSearchResultCount, prepareSearchResults } from '../src/utils/search.js';
+import { getInitialSearchResultCount, getSearchIntent, prepareSearchResults } from '../src/utils/search.js';
 
 test('search results are deduplicated and lightly prioritize exact matches', () => {
   const results = prepareSearchResults([
@@ -46,12 +46,27 @@ test('Shorts only appear when the query explicitly asks for them', () => {
   );
   assert.deepEqual(
     prepareSearchResults(mixedResults, 'kurzgesagt shorts').map(result => result.id),
-    ['regular', 'short', 'unknown']
+    ['short']
   );
   assert.deepEqual(
     prepareSearchResults(mixedResults, '#short').map(result => result.id),
-    ['regular', 'short', 'unknown']
+    ['short']
   );
+});
+
+test('Shorts keywords act as filters and are removed from the provider query', () => {
+  assert.deepEqual(getSearchIntent('kurzgesagt shorts'), {
+    searchQuery: 'kurzgesagt',
+    wantsShorts: true,
+  });
+  assert.deepEqual(getSearchIntent('  iRaffael   #SHORT,  '), {
+    searchQuery: 'iRaffael',
+    wantsShorts: true,
+  });
+  assert.deepEqual(getSearchIntent('a short-story documentary'), {
+    searchQuery: 'a short-story documentary',
+    wantsShorts: false,
+  });
 });
 
 test('search batches preserve complete two and three column rows', () => {
