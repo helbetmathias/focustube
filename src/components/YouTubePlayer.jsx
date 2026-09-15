@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Maximize, Minimize, SkipForward, Info, Star, RotateCcw, Play } from 'lucide-react';
 import { fetchSkipSegments } from '../utils/sponsorblock';
-import { fetchRelatedVideos, fetchAuthorFallback } from '../services/youtubeApi';
-import { getTimeSaved, saveTimeSaved, getFeedCache, saveFeedCache } from '../services/storage';
+import { fetchAuthorFallback } from '../services/youtubeApi';
+import { getTimeSaved, saveTimeSaved } from '../services/storage';
 import { filterKnownShorts } from '../utils/search';
 
 const ThumbnailImage = ({ src, videoId, alt, className }) => {
@@ -350,68 +350,30 @@ export default function YouTubePlayer({ videoId, playlistId, playlistIndex = 0, 
               setIsFetchingRelated(true);
               setRelatedError(false);
 
-              let finishedSources = 0;
-
-              const cacheVideos = (videos) => {
-                getFeedCache().then(existing => {
-                  const prevCache = existing || [];
-                  const newIds = new Set(videos.map(v => v.id));
-                  const keepPrev = prevCache.filter(v => !newIds.has(v.id)).slice(0, 10);
-                  const newSample = videos.slice(0, 10);
-                  const combined = [...newSample, ...keepPrev].sort(() => 0.5 - Math.random());
-                  saveFeedCache(combined);
-                });
-              };
-
               const markSourceFailed = () => {
-                finishedSources += 1;
                 if (requestId !== relatedRequestIdRef.current) return;
-                if (finishedSources >= 2 && !relatedStatusRef.current.hasResults) {
-                  relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: false, failed: true };
-                  setRelatedError(true);
-                  setIsFetchingRelated(false);
-                }
+                relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: false, failed: true };
+                setRelatedError(true);
+                setIsFetchingRelated(false);
               };
 
-              const applyResults = (videos, source) => {
-                finishedSources += 1;
+              const applyResults = (videos) => {
                 if (requestId !== relatedRequestIdRef.current) return;
                 const shortFreeVideos = filterKnownShorts(videos);
                 if (shortFreeVideos.length === 0) {
-                  if (finishedSources >= 2 && !relatedStatusRef.current.hasResults) {
-                    relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: false, failed: true };
-                    setRelatedError(true);
-                    setIsFetchingRelated(false);
-                  }
+                  markSourceFailed();
                   return;
                 }
 
                 relatedStatusRef.current = { videoId: videoIdToFetch, loading: false, hasResults: true, failed: false };
                 setRelatedError(false);
                 setIsFetchingRelated(false);
-
-                if (source === 'real') {
-                  // Real related results take priority, while retaining unique search fallbacks for variety.
-                  setRelatedVideos(previous => {
-                    const fallback = Array.isArray(previous) ? previous : [];
-                    const realIds = new Set(shortFreeVideos.map(video => video.id));
-                    return [...shortFreeVideos, ...filterKnownShorts(fallback).filter(video => !realIds.has(video.id))].slice(0, 20);
-                  });
-                } else {
-                  // Search results win the race only when real recommendations have not arrived yet.
-                  setRelatedVideos(previous => filterKnownShorts(previous).length > 0 ? filterKnownShorts(previous) : shortFreeVideos);
-                }
-
-                cacheVideos(shortFreeVideos);
+                setRelatedVideos(shortFreeVideos.slice(0, 12));
               };
 
-              // Run both sources together: search is the fast fallback, real related data is preferred when available.
-              fetchRelatedVideos(videoIdToFetch)
-                .then(videos => applyResults(videos, 'real'))
-                .catch(markSourceFailed);
-
+              // Creator search reliably classifies Shorts; unclassified related feeds are intentionally avoided.
               fetchAuthorFallback(currentVideoData.author, videoIdToFetch)
-                .then(videos => applyResults(videos, 'search'))
+                .then(applyResults)
                 .catch(markSourceFailed);
             };
 

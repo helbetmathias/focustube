@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Link as LinkIcon, Loader2, Search, ListVideo, ArrowLeft, LayoutGrid } from 'lucide-react';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { parseYouTubeUrl } from '../utils/youtube';
-import { blendRecommendationSources, buildBalancedCreatorFeed, getCompactTargetFeedSize, getContinueWatchingItems, getHomeFeedPoolSize, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
+import { buildBalancedCreatorFeed, getCompactTargetFeedSize, getContinueWatchingItems, getHomeFeedPoolSize, getHomeHistoryContext, getTargetFeedSize } from '../utils/feed';
 import { filterKnownShorts, getInitialSearchResultCount, getSearchIntent, prepareSearchResults } from '../utils/search';
-import { fetchPlaylistDetails, fetchSearchResults, fetchRelatedVideos } from '../services/youtubeApi';
+import { fetchPlaylistDetails, fetchSearchResults } from '../services/youtubeApi';
 import { getHistory, saveHistory, getHomeBlendCache, saveHomeBlendCache, saveHomeReserveCache } from '../services/storage';
 
 const ThumbnailImage = ({ src, videoId, alt, className }) => {
@@ -225,7 +225,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         return;
       }
 
-      const { creators, newestSeed, signature } = getHomeHistoryContext(history);
+      const { creators, signature } = getHomeHistoryContext(history);
       setHomeCreatorCount(creators.length);
       if (creators.length === 0) {
         setIsFeedLoading(false);
@@ -233,37 +233,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       }
 
       const historyIds = new Set(history.map(item => item.id));
-      const enrichWithRealRecommendations = (baseFeed, excludedIds = new Set()) => {
-        if (!newestSeed?.id || !Array.isArray(baseFeed) || baseFeed.length === 0) return;
-
-        const baseIds = new Set(baseFeed.map(video => video.id));
-        fetchRelatedVideos(newestSeed.id)
-          .then(realResults => {
-            if (requestId !== homeFeedRequestIdRef.current || !Array.isArray(realResults)) return;
-
-            const realIds = new Set();
-            const realFeed = filterKnownShorts(realResults).filter(video => {
-              if (
-                video.type !== 'video'
-                || historyIds.has(video.id)
-                || baseIds.has(video.id)
-                || excludedIds.has(video.id)
-                || realIds.has(video.id)
-              ) return false;
-              realIds.add(video.id);
-              return true;
-            });
-
-            if (realFeed.length === 0) return;
-
-            const finalFeed = blendRecommendationSources(baseFeed, realFeed);
-            setHomeFeed(finalFeed);
-            saveHomeBlendCache(finalFeed, signature);
-          })
-          .catch(() => {
-            // The creator-search feed remains visible while real recommendations are unavailable.
-          });
-      };
 
       if (!forceRefresh) {
         const cache = await getHomeBlendCache();
@@ -275,7 +244,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         ) {
           setHomeFeed(cachedFeed);
           setIsFeedLoading(false);
-          enrichWithRealRecommendations(cachedFeed, new Set(cachedFeed.map(video => video.id)));
           return;
         }
       }
@@ -307,7 +275,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       });
 
       // Keep a complete four-card pool; the visible feed is sliced responsively below.
-      const { visibleFeed: fastFeed, reserveFeed, creatorIds } = buildBalancedCreatorFeed(authorVideos, targetFeedSize);
+      const { visibleFeed: fastFeed, reserveFeed } = buildBalancedCreatorFeed(authorVideos, targetFeedSize);
 
       if (requestId !== homeFeedRequestIdRef.current) return;
 
@@ -318,9 +286,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
         setIsFeedLoading(false);
         saveHomeBlendCache(fastFeed, signature);
       }
-
-      // Phase 2: real recommendations retry on every page load and never block the fast feed.
-      enrichWithRealRecommendations(fastFeed, creatorIds);
     } catch (e) {
       console.error("Failed to build history feed", e);
     } finally {
