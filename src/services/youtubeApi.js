@@ -170,7 +170,7 @@ export async function fetchAuthorFallback(author, excludeVideoId) {
   try {
     const cleanAuthor = author.replace(/VEVO$/i, '').replace(/ - Topic$/i, '');
     const searchResults = await fetchSearchResults(cleanAuthor);
-    let filtered = searchResults.filter(video =>
+    const matchingAuthor = searchResults.filter(video =>
       video.id !== excludeVideoId &&
       video.type === 'video' &&
       video.isShort !== true &&
@@ -179,13 +179,15 @@ export async function fetchAuthorFallback(author, excludeVideoId) {
         cleanAuthor.toLowerCase().includes(video.author.toLowerCase()))
     );
 
-    if (filtered.length === 0) {
-      filtered = searchResults
-        .filter(video => video.type === 'video' && video.isShort !== true && video.id !== excludeVideoId)
-        .slice(0, 15);
-    }
+    const matchingIds = new Set(matchingAuthor.map(video => video.id));
+    const supplemental = searchResults.filter(video =>
+      video.type === 'video'
+      && video.isShort !== true
+      && video.id !== excludeVideoId
+      && !matchingIds.has(video.id)
+    );
 
-    return filtered;
+    return [...matchingAuthor, ...supplemental].slice(0, 15);
   } catch (error) {
     console.warn("Author search fallback failed", error);
     throw error;

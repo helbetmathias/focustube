@@ -56,6 +56,13 @@ const getCompactLaptopMatch = () => (
   typeof window !== 'undefined' && window.matchMedia(COMPACT_LAPTOP_QUERY).matches
 );
 
+const getSearchColumnCount = () => {
+  if (typeof window === 'undefined') return 3;
+  if (window.innerWidth >= 1024) return 3;
+  if (window.innerWidth >= 640) return 2;
+  return 1;
+};
+
 const SearchResultCard = ({ vid, onSelect, formatDuration, className = '' }) => {
   const isPlaylist = vid.type === 'playlist';
   const thumbnailVideoId = isPlaylist && vid.thumbnail.includes('/vi/')
@@ -92,6 +99,10 @@ const SearchResultCard = ({ vid, onSelect, formatDuration, className = '' }) => 
           <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
             {formatDuration(vid.lengthSeconds)}
           </div>
+        ) : vid.isShort ? (
+          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-semibold px-1.5 py-0.5 rounded shadow-sm border border-white/10">
+            Short
+          </div>
         ) : null}
       </div>
       <h4 className="font-medium text-zinc-100 line-clamp-2 leading-snug mb-1 group-hover:text-brand-500 transition-colors">{vid.title}</h4>
@@ -113,7 +124,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [continueWatchingEnabled, setContinueWatchingEnabled] = useState(() => localStorage.getItem('puretube_continue_watching') !== 'false');
   const [continueWatching, setContinueWatching] = useState([]);
   const [searchResults, setSearchResults] = useState(null);
-  const [showAllSearchResults, setShowAllSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [homeFeed, setHomeFeed] = useState(null);
@@ -122,6 +132,7 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const [isFeedLoading, setIsFeedLoading] = useState(true);
   const [homeCreatorCount, setHomeCreatorCount] = useState(0);
   const [isCompactLaptop, setIsCompactLaptop] = useState(getCompactLaptopMatch);
+  const [searchColumnCount, setSearchColumnCount] = useState(getSearchColumnCount);
   const currentVideoIdRef = useRef(null);
   const activePlaylistIdRef = useRef(null);
   const activePlaylistIndexRef = useRef(-1);
@@ -135,6 +146,12 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
     setIsCompactLaptop(mediaQuery.matches);
     mediaQuery.addEventListener('change', updateLayout);
     return () => mediaQuery.removeEventListener('change', updateLayout);
+  }, []);
+
+  useEffect(() => {
+    const updateSearchColumns = () => setSearchColumnCount(getSearchColumnCount());
+    window.addEventListener('resize', updateSearchColumns);
+    return () => window.removeEventListener('resize', updateSearchColumns);
   }, []);
 
   const formatDuration = (seconds) => {
@@ -331,7 +348,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       setPlaylistData(null);
       setPlaylistMetadata(null);
       setSearchResults(null);
-      setShowAllSearchResults(false);
       setUrl('');
       
       loadHomeFeed(false);
@@ -436,7 +452,6 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
       setIsSearching(true);
       setSearchError(false);
       setLastSearchTerm(url);
-      setShowAllSearchResults(false);
       fetchSearchResults(providerQuery)
         .then(results => {
           setSearchResults(prepareSearchResults(results, parsed.query));
@@ -510,10 +525,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
   const viewMaxWidth = hasActiveMedia ? playerContainerMaxWidth : browseMaxWidth;
 
   const showBack = searchResults && (mediaInfo.videoId || mediaInfo.playlistId) && (url === lastSearchTerm || url.trim().length === 0);
-  const initialSearchResultCount = searchResults ? getInitialSearchResultCount(searchResults.length) : 0;
-  const primarySearchResults = searchResults?.slice(0, initialSearchResultCount) || [];
-  const extraSearchResults = showAllSearchResults ? searchResults?.slice(initialSearchResultCount) || [] : [];
-  const hasExtraSearchResults = Boolean(searchResults && searchResults.length > initialSearchResultCount);
+  const visibleSearchResultCount = searchResults
+    ? getInitialSearchResultCount(searchResults.length, searchColumnCount)
+    : 0;
+  const visibleSearchResults = searchResults?.slice(0, visibleSearchResultCount) || [];
   const continueWatchingItems = isCompactLaptop ? continueWatching.slice(0, 3) : continueWatching;
   const desktopHomeFeedSize = getTargetFeedSize(homeCreatorCount);
   const compactHomeFeedSize = getCompactTargetFeedSize(homeCreatorCount);
@@ -687,45 +702,10 @@ export default function PlayerView({ isActive, playRequest, onChannelClick }) {
               >
                 <h3 className="text-xl font-semibold text-zinc-100 mb-6 px-2">Search Results</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {primarySearchResults.map(vid => (
+                  {visibleSearchResults.map(vid => (
                     <SearchResultCard key={`${vid.type}:${vid.id}`} vid={vid} onSelect={selectSearchResult} formatDuration={formatDuration} />
                   ))}
                 </div>
-                {hasExtraSearchResults && !showAllSearchResults && (
-                  <div className="flex justify-center mt-6">
-                    <button
-                      type="button"
-                      onClick={() => setShowAllSearchResults(true)}
-                      className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm font-semibold text-zinc-100 transition-colors"
-                    >
-                      Show more ({searchResults.length - initialSearchResultCount})
-                    </button>
-                  </div>
-                )}
-                {extraSearchResults.length > 0 && (
-                  <>
-                    <div className="flex flex-wrap justify-center gap-4 mt-4">
-                      {extraSearchResults.map(vid => (
-                        <SearchResultCard
-                          key={`${vid.type}:${vid.id}`}
-                          vid={vid}
-                          onSelect={selectSearchResult}
-                          formatDuration={formatDuration}
-                          className="w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
-                        />
-                      ))}
-                    </div>
-                    <div className="flex justify-center mt-6">
-                      <button
-                        type="button"
-                        onClick={() => setShowAllSearchResults(false)}
-                        className="px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-sm font-medium text-zinc-300 transition-colors"
-                      >
-                        Show less
-                      </button>
-                    </div>
-                  </>
-                )}
               </div>
             ) : (
               <div key="home-content" id="home-feed-container" className="w-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-10 pr-2">

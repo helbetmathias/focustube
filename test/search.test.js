@@ -74,4 +74,7 @@ test('search batches preserve complete two and three column rows', () => {
   assert.equal(getInitialSearchResultCount(8), 6);
   assert.equal(getInitialSearchResultCount(6), 6);
   assert.equal(getInitialSearchResultCount(5), 5);
+  assert.equal(getInitialSearchResultCount(29, 3), 27);
+  assert.equal(getInitialSearchResultCount(29, 2), 28);
+  assert.equal(getInitialSearchResultCount(29, 1), 29);
 });

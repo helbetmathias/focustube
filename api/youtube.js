@@ -106,7 +106,8 @@ export default async function handler(request, response) {
           async () => ({
             provider: 'youtube-web',
             data: await fetchYouTubeSearchResultsWithRetry(parsed.params.query, {
-              timeoutMs: 4500,
+              timeoutMs: parsed.params.pages === 2 ? 8000 : 4500,
+              pages: parsed.params.pages,
             }),
           }),
         )

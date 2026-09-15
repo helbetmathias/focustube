@@ -208,8 +208,8 @@ function playlistFromLockup(lockup) {
 }
 
 export function extractYouTubeSearchResults(initialData) {
-  const results = [];
-  const seen = new Set();
+  const resultOrder = [];
+  const resultsByKey = new Map();
 
   const visit = value => {
     if (!value || typeof value !== 'object') return;
@@ -228,9 +228,14 @@ export function extractYouTubeSearchResults(initialData) {
     for (const candidate of candidates) {
       const id = candidate.videoId || candidate.playlistId;
       const key = `${candidate.type}:${id}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        results.push(candidate);
+      const existing = resultsByKey.get(key);
+      if (!existing) {
+        resultOrder.push(key);
+        resultsByKey.set(key, candidate);
+      } else if (candidate.isShort === true && existing.isShort !== true) {
+        // The same Short can first appear as a regular video renderer. Preserve
+        // its richer metadata, but upgrade its classification from the shelf.
+        resultsByKey.set(key, { ...candidate, ...existing, isShort: true });
       }
     }
 
@@ -238,12 +243,76 @@ export function extractYouTubeSearchResults(initialData) {
   };
 
   visit(initialData);
-  return results.slice(0, 40);
+  const results = resultOrder.map(key => resultsByKey.get(key));
+  const regularResults = results.filter(result => result.isShort !== true).slice(0, 40);
+  const shortResults = results.filter(result => result.isShort === true).slice(0, 40);
+  return [...regularResults, ...shortResults];
+}
+
+function findSearchContinuationToken(initialData) {
+  let token = '';
+
+  const visit = value => {
+    if (token || !value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    const renderer = value.continuationItemRenderer;
+    token = renderer?.continuationEndpoint?.continuationCommand?.token
+      || renderer?.button?.buttonRenderer?.command?.continuationCommand?.token
+      || '';
+    if (!token) Object.values(value).forEach(visit);
+  };
+
+  visit(initialData);
+  return token;
+}
+
+async function fetchYouTubeContinuation(initialData, {
+  fetchImpl,
+  signal,
+  pages,
+}) {
+  if (pages < 2) return initialData;
+  const continuation = findSearchContinuationToken(initialData);
+  if (!continuation) return initialData;
+
+  try {
+    const response = await fetchImpl(YOUTUBE_JSON_SEARCH_URL, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': YOUTUBE_WEB_CLIENT_VERSION,
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: YOUTUBE_WEB_CLIENT_VERSION,
+            hl: 'en',
+            gl: 'US',
+          },
+        },
+        continuation,
+      }),
+    });
+    if (!response.ok) return initialData;
+    return { pages: [initialData, await response.json()] };
+  } catch {
+    // The first page is still useful if YouTube rejects its continuation.
+    return initialData;
+  }
 }
 
 export async function fetchYouTubeSearchResults(query, {
   fetchImpl = fetch,
   timeoutMs = 7000,
+  pages = 1,
 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -262,7 +331,12 @@ export async function fetchYouTubeSearchResults(query, {
     });
     if (!response.ok) throw new Error(`YouTube returned HTTP ${response.status}`);
     const initialData = parseYouTubeInitialData(await response.text());
-    const results = extractYouTubeSearchResults(initialData);
+    const completeData = await fetchYouTubeContinuation(initialData, {
+      fetchImpl,
+      signal: controller.signal,
+      pages,
+    });
+    const results = extractYouTubeSearchResults(completeData);
     if (results.length === 0) throw new Error('YouTube returned no search results');
     return results;
   } finally {
@@ -273,6 +347,7 @@ export async function fetchYouTubeSearchResults(query, {
 export async function fetchYouTubeJsonSearchResults(query, {
   fetchImpl = fetch,
   timeoutMs = 4500,
+  pages = 1,
 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -300,7 +375,13 @@ export async function fetchYouTubeJsonSearchResults(query, {
       }),
     });
     if (!response.ok) throw new Error(`YouTube JSON search returned HTTP ${response.status}`);
-    const results = extractYouTubeSearchResults(await response.json());
+    const initialData = await response.json();
+    const completeData = await fetchYouTubeContinuation(initialData, {
+      fetchImpl,
+      signal: controller.signal,
+      pages,
+    });
+    const results = extractYouTubeSearchResults(completeData);
     if (results.length === 0) throw new Error('YouTube JSON search returned no results');
     return results;
   } finally {
@@ -312,13 +393,14 @@ export async function fetchYouTubeSearchResultsWithRetry(query, {
   attempts = 2,
   fetchImpl = fetch,
   timeoutMs = 4500,
+  pages = 1,
 } = {}) {
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       return await raceSearchSources(
-        () => fetchYouTubeJsonSearchResults(query, { fetchImpl, timeoutMs }),
-        () => fetchYouTubeSearchResults(query, { fetchImpl, timeoutMs }),
+        () => fetchYouTubeJsonSearchResults(query, { fetchImpl, timeoutMs, pages }),
+        () => fetchYouTubeSearchResults(query, { fetchImpl, timeoutMs, pages }),
         { fallbackDelayMs: 600 },
       );
     } catch (error) {
